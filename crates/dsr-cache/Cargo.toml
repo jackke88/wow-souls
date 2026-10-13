@@ -1,0 +1,25 @@
+[package]
+name = "dsr-cache"
+version.workspace = true
+edition.workspace = true
+# Links dsr-formats (GPL-3.0-or-later): see docs/PROVENANCE.md.
+license = "GPL-3.0-or-later"
+description = "wow-souls-dsr: reads Dark Souls Remastered data, retargets it to WoW skeletons, writes cache/dsr"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "wow-souls-dsr"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+glam.workspace = true
+dsr-formats.workspace = true
+wscl.workspace = true
+benilla-formats.workspace = true
+benilla-m2.workspace = true
+# The HUD cache: DXT decode and PNG files (both already in Cargo.lock through benilla and Bevy).
+texpresso = "2"
+png = "0.18"

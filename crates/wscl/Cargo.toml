@@ -1,0 +1,9 @@
+[package]
+name = "wscl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Sampled skeletal clip files: the contract between the Dark Souls extractor and the game"
+
+[lints]
+workspace = true

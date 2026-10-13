@@ -1,0 +1,55 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.lints.clippy]
+# A Bevy system's parameter list is its dependency declaration (as in benilla).
+too_many_arguments = "allow"
+type_complexity = "allow"
+
+[workspace.dependencies]
+# benilla, pinned: C:\Spel\research\benilla-everwood is checked out at f545081e9f60668b4f5b1252b67b8058c5995bfd,
+# the everwood graphics fork (github.com/pkuzic/benilla-everwood_graphics: upstream benilla plus the lighting,
+# shadow, sky and water work; MIT OR Apache-2.0), 210 commits past the old pin 2e82d34c1b561e3bb033f7cd910036ba63ce1760
+# that stays untouched at C:\Spel\benilla as the fallback (docs/PROVENANCE.md). Engine crates only, never
+# benilla-app: see docs/wow-souls-feasibility.md §6.
+# `default-features = false` so `--no-default-features` really drops their `dev` instruments.
+benilla-world = { path = "../research/benilla-everwood/crates/benilla-world", default-features = false }
+benilla-assets = { path = "../research/benilla-everwood/crates/benilla-assets", default-features = false }
+benilla-formats = { path = "../research/benilla-everwood/crates/benilla-formats", default-features = false }
+benilla-buildstamp = { path = "../research/benilla-everwood/crates/benilla-buildstamp" }
+# benilla's Bevy, adding no features: Bevy's defaults would bring its audio stack back. The
+# engine crates switch on the features they need and cargo unifies them.
+bevy = { version = "0.18.1", default-features = false }
+avian3d = "0.6"
+anyhow = "1.0.102"
+flate2 = "1.1"
+glam = "0.31"
+# The mixer: cpal opens the output device, symphonia decodes the WoW .wav files (PCM and ADPCM), WoW's
+# .mp3 music and the Spoken Player pack's .ogg (Vorbis) quest voices.
+cpal = "0.17"
+symphonia = { version = "0.6", default-features = false, features = ["wav", "pcm", "adpcm", "mp3", "ogg", "vorbis"] }
+benilla-m2 = { path = "../research/benilla-everwood/crates/benilla-m2" }
+wscl = { path = "crates/wscl" }
+dsr-formats = { path = "crates/dsr-formats" }
+wow-world = { path = "crates/wow-world" }
+
+# Profiles copied from benilla's root manifest; cargo reads them from the root only.
+# Dependencies at opt-level 3 in dev: at opt-level 0, avian/parry collision drops to <1 fps.
+[profile.dev.package."*"]
+opt-level = 3
+
+# Our crates at opt-level 1: Bevy's generic hot paths monomorphize into them.
+[profile.dev]
+opt-level = 1
+
+# The shipping build (`--profile ship`).
+[profile.ship]
+inherits = "release"
+lto = "fat"
+codegen-units = 1

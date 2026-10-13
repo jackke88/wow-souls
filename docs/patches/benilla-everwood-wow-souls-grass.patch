@@ -1,0 +1,164 @@
+diff --git a/crates/benilla-assets/src/shaders/wind_hook.wgsl b/crates/benilla-assets/src/shaders/wind_hook.wgsl
+index 0b61c428..d5fc692e 100644
+--- a/crates/benilla-assets/src/shaders/wind_hook.wgsl
++++ b/crates/benilla-assets/src/shaders/wind_hook.wgsl
+@@ -9,6 +9,15 @@ const WIND_TAU: f32 = 6.28318530718;
+ // (`wind::TRAVEL_WRAP`). Each wave rate is a whole number of cycles per wrap, so the wrap is
+ // seamless; the phase advances at k * speed, never k * speed * age.
+ const WIND_WRAP: f32 = 4096.0;
++// WOW-SOULS (grass): the trample around a unit, in multiples of its bender radius (1.5-2 yd), and
++// the share of its height a tuft loses at the heart of it. The player (bender 0) barely presses the
++// meadow it walks through; a monster lowers a wider, deeper patch so it stays readable.
++const TRAMPLE_PLAYER_INNER: f32 = 0.5;
++const TRAMPLE_PLAYER_OUTER: f32 = 1.7;
++const TRAMPLE_PLAYER_LOSS: f32 = 0.22;
++const TRAMPLE_UNIT_INNER: f32 = 0.8;
++const TRAMPLE_UNIT_OUTER: f32 = 2.2;
++const TRAMPLE_UNIT_LOSS: f32 = 0.5;
+ 
+ // The phase (radians) of a wave doing `cycles` whole cycles per wrap of travel.
+ fn wind_travel_phase(travel: f32, cycles: f32) -> f32 {
+@@ -42,16 +51,41 @@ fn wind_cross_dir(dir: vec2<f32>) -> vec2<f32> {
+ // eight MonkeyFrame benders. `bend_height` is authored from local mesh height, never texture V.
+ fn grass_offset(
+     world: vec3<f32>,
+-    bend_height: f32,
++    bend_packed: f32,
+     tuft_phase: f32,
+     camera: vec3<f32>,
+     frame: MonkeyFrame,
+ ) -> vec3<f32> {
++    // WOW-SOULS (grass): clutter.rs packs the tuft's height in eighths of a yard above the 0..1
++    // bend fraction (`2 * code + fraction`).
++    let height_code = floor(bend_packed * 0.5);
++    let bend_height = bend_packed - 2.0 * height_code;
++    let tuft_height = height_code * 0.125;
+     let anchored = clamp((bend_height - 0.30) / 0.70, 0.0, 1.0);
+     let weight = anchored * anchored;
+-    if (weight <= 0.0 || frame.wind_b.z <= 0.0) {
++    if (bend_height <= 0.0 || frame.wind_b.z <= 0.0) {
+         return vec3<f32>(0.0);
+     }
++    // WOW-SOULS (grass): around every unit (the player and the seven nearest) the grass lies a little
++    // down, so a monster standing in a meadow stays readable. `squash` is the share of the tuft's
++    // height lost, the largest of the benders'; blades shorten toward their roots.
++    var squash = 0.0;
++    let bender_count = min(u32(frame.misc.x), 8u);
++    for (var j = 0u; j < 8u; j += 1u) {
++        if (j < bender_count) {
++            let unit = frame.benders[j];
++            let gap = length(world.xz - unit.xz);
++            let player = j == 0u;
++            let inner = select(TRAMPLE_UNIT_INNER, TRAMPLE_PLAYER_INNER, player);
++            let outer = select(TRAMPLE_UNIT_OUTER, TRAMPLE_PLAYER_OUTER, player);
++            let loss = select(TRAMPLE_UNIT_LOSS, TRAMPLE_PLAYER_LOSS, player);
++            squash = max(squash, loss * (1.0 - smoothstep(unit.w * inner, unit.w * outer, gap)));
++        }
++    }
++    let press = -bend_height * tuft_height * squash;
++    if (weight <= 0.0) {
++        return vec3<f32>(0.0, press, 0.0);
++    }
+ 
+     let dir_primary = normalize(frame.wind_a.xy + vec2<f32>(1.0e-6, 0.0));
+     let dir_secondary = wind_cross_dir(dir_primary);
+@@ -87,7 +121,7 @@ fn grass_offset(
+         }
+     }
+     // MONKEY (fix-wind): a bent tip dips, so a blade reads as bending rather than stretching.
+-    return vec3<f32>(xz.x, -min(0.6 * dot(xz, xz), 0.25), xz.y);
++    return vec3<f32>(xz.x, -min(0.6 * dot(xz, xz), 0.25) + press, xz.y);
+ }
+ 
+ // MONKEY (wind): our tree/bush design (WarcraftXL has no tree wind). Only leaf-card batches call
+diff --git a/crates/benilla-world/src/clutter.rs b/crates/benilla-world/src/clutter.rs
+index 8fa2cdbd..b1402341 100644
+--- a/crates/benilla-world/src/clutter.rs
++++ b/crates/benilla-world/src/clutter.rs
+@@ -50,12 +50,12 @@ fn remesh_on_cutout_change(
+     mut commands: Commands,
+     cfg: Res<ClutterConfig>,
+     mut chunks: Query<&mut ClutterChunk>,
+-    mut last: Local<Option<f32>>,
++    mut last: Local<Option<(f32, f32)>>,
+ ) {
+-    let Some(prev) = last.replace(cfg.alpha_ref) else {
++    let Some(prev) = last.replace((cfg.alpha_ref, cfg.height)) else {
+         return;
+     };
+-    if prev == cfg.alpha_ref {
++    if prev == (cfg.alpha_ref, cfg.height) {
+         return;
+     }
+     let mut n = 0;
+@@ -133,6 +133,10 @@ pub struct ClutterConfig {
+     pub density: f32,
+     pub alpha_ref: f32,
+     pub fade_far: f32,
++    /// WOW-SOULS (grass): a multiple of every tuft's height (1 = the reference's 0.9-1.1). A change
++    /// drops the built meshes and re-cuts them, like the alpha ref. Seeded from
++    /// `$WOW_CLUTTER_HEIGHT`.
++    pub height: f32,
+ }
+ 
+ impl ClutterConfig {
+@@ -164,6 +168,7 @@ impl Default for ClutterConfig {
+             fade_far: env("WOW_CLUTTER_FADE")
+                 .unwrap_or(DETAIL_DOODAD_FADE_FAR)
+                 .max(1.0),
++            height: env("WOW_CLUTTER_HEIGHT").unwrap_or(1.0).clamp(0.1, 4.0),
+         }
+     }
+ }
+@@ -195,8 +200,9 @@ const CLUTTER_TEARDOWN_HYSTERESIS: f32 = 6.0;
+ /// How far a tuft reaches above the terrain (yd); the chunk's box is grown by it.
+ const CLUTTER_TUFT_HEIGHT: f32 = 3.0;
+ 
+-/// Most chunks built per frame, so an arrival in a dense area spreads over a few frames.
+-const CLUTTER_BUILDS_PER_FRAME: usize = 8;
++/// Most chunks built per frame, so an arrival in a dense area spreads over a few frames. WOW-SOULS
++/// (grass): 3, not 8; at frill 256 a chunk is eight times the work and eight in one frame hitched.
++const CLUTTER_BUILDS_PER_FRAME: usize = 3;
+ 
+ /// The reference's per-tuft detail-doodad diffuse, picked from the chunk's MCSH map at the
+ /// placement: `0xFFFFFFFF` lit, `0xFFC0C0C0` shadowed. Baked into the vertex colour.
+@@ -307,6 +313,7 @@ fn build_chunk_clutter(
+     models: &[(String, Vec<ShadedPlacement>)],
+     alpha_ref: f32,
+     fade_far: f32,
++    height_scale: f32,
+     geometry: &mut ClutterGeometry,
+     assets: &mut WorldAssets,
+     meshes: &mut Assets<Mesh>,
+@@ -351,8 +358,12 @@ fn build_chunk_clutter(
+                 let base = positions.len() as u32;
+                 let origin = wow_to_bevy(d.position);
+                 let rot = Quat::from_rotation_y(d.yaw);
+-                // The reference's random per-tuft scale, in [0.9, 1.1].
+-                let inst_scale = d.scale;
++                // The reference's random per-tuft scale, in [0.9, 1.1], times the grass height.
++                let inst_scale = d.scale * height_scale;
++                // WOW-SOULS (grass): the tuft's height in yards, in eighths, rides UV_B.x above
++                // the 0..1 bend fraction (`2 * code + fraction`), so the shader can press a tuft
++                // down around a unit (`wind_hook::grass_offset`).
++                let height_code = ((height_span * inst_scale * 8.0).round()).clamp(0.0, 60.0);
+                 let phase = tuft_phase(origin);
+                 // One tint per tuft. The reference makes the grey the lit material (colour material
+                 // on ambient and diffuse, `0x59cfec`), `clamp(grey × light) × texture`; the shader
+@@ -363,7 +374,7 @@ fn build_chunk_clutter(
+                     positions.push((rot * (wow_to_bevy(*p) * inst_scale) + origin).to_array());
+                     uvs.push(sub.uvs[i]);
+                     let bend_height = if bends {
+-                        ((p[2] - min_z) / height_span).clamp(0.0, 1.0)
++                        ((p[2] - min_z) / height_span).clamp(0.0, 1.0) + 2.0 * height_code
+                     } else {
+                         0.0
+                     };
+@@ -519,6 +530,7 @@ pub(crate) fn stream_chunk_clutter(
+             &cc.models,
+             cfg.alpha_ref,
+             cfg.fade_far,
++            cfg.height,
+             &mut geometry,
+             &mut assets,
+             &mut meshes,

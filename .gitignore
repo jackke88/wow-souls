@@ -1,0 +1,22 @@
+# Never commit anything from the WoW install: the `WoW` junction, game art, captures.
+/WoW
+/target
+/benilla-config
+/captures
+*.png
+*.blp
+*.mpq
+*.MPQ
+*.m2
+*.wmo
+*.adt
+*.dbc
+*.log
+
+# Anything read or derived from the Dark Souls Remastered install stays local.
+/cache
+
+# Recordings and cuts are local captures, not source.
+*.mp4
+*.mov
+*.mkv

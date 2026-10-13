@@ -1,0 +1,21 @@
+[package]
+name = "wow-world"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Northshire's creatures, spawns, NPCs and quests from the vMaNGOS world database, as one manifest for the game"
+
+[lints]
+workspace = true
+
+[lib]
+name = "wow_world"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wow-souls-world"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+benilla-formats.workspace = true

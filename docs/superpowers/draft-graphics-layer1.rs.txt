@@ -1,0 +1,257 @@
+//! The graphics preset: the look of the world, from Classic (the 1.12 client as it was) to Ultra. The engine
+//! is the everwood fork of benilla (`github.com/pkuzic/benilla-everwood_graphics`, MIT OR Apache-2.0), whose
+//! renderer (`benilla-world`) holds the modern sky, fog, water, wind, rain and interior / fire light, each
+//! switched by a resource that its own app wires to console variables. We have no console variables: this
+//! module sets those resources straight from a preset, once, after the world plugins are up.
+//!
+//! The columns are the fork's own (`GRAPHICS_PRESETS` and `LIGHTING_PRESETS` in its `benilla-app` crate,
+//! docs/PROVENANCE.md). The lanes whose drivers live in `benilla-app` (realtime shadows, bloom, grading,
+//! sun shafts, ambient occlusion, volumetric fog and light, torch shadows) are a later port: this is layer 1.
+//!
+//! `WOWSOULS_GFX=classic|low|medium|high|ultra` (default `high`, the fork's own default).
+
+use bevy::prelude::*;
+
+use benilla_assets::WaterQuality;
+use benilla_world::ffx_glow::SkyDither;
+use benilla_world::lighting::{
+    set_window_split, DynamicInteriors, FireLightGain, FogModelSetting, LavaLightGain, MoonLight,
+    MoonShadowStrength, SpellLightGain,
+};
+use benilla_world::sky_fx::SkyQuality;
+use benilla_world::skybox::ZoneSkyboxes;
+use benilla_world::view::ViewDistance;
+use benilla_world::weather::RainSurfaces;
+use benilla_world::wind::FoliageWind;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Preset {
+    Classic,
+    Low,
+    Medium,
+    High,
+    Ultra,
+}
+
+impl Preset {
+    pub fn parse(s: &str) -> Option<Preset> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "classic" | "off" | "0" => Some(Preset::Classic),
+            "low" | "1" => Some(Preset::Low),
+            "medium" | "2" => Some(Preset::Medium),
+            "high" | "3" => Some(Preset::High),
+            "ultra" | "4" => Some(Preset::Ultra),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Preset::Classic => "Classic",
+            Preset::Low => "Low",
+            Preset::Medium => "Medium",
+            Preset::High => "High",
+            Preset::Ultra => "Ultra",
+        }
+    }
+
+    /// The preset of the environment, else the default (High).
+    pub fn from_env() -> Preset {
+        std::env::var("WOWSOULS_GFX")
+            .ok()
+            .and_then(|v| Preset::parse(&v))
+            .unwrap_or(Preset::High)
+    }
+
+    /// The world-level settings of this rung.
+    pub fn look(self) -> Look {
+        use Preset::*;
+        let classic = self == Classic;
+        Look {
+            water_quality: match self {
+                Classic => 0,
+                Low | Medium => 1,
+                High | Ultra => 2,
+            },
+            sky_quality: match self {
+                Classic => 0,
+                Low | Medium => 1,
+                High | Ultra => 2,
+            },
+            modern_fog: !classic,
+            sky_dither: !classic,
+            foliage_wind: match self {
+                Classic => 0,
+                Low => 1,
+                Medium | High | Ultra => 2,
+            },
+            rain_surfaces: !classic,
+            zone_skyboxes: matches!(self, Medium | High | Ultra),
+            interior_light: !classic,
+            spell_light_gain: if classic { 0.0 } else { 1.0 },
+            fire_light_gain: if classic { 0.0 } else { 1.0 },
+            lava_light_gain: if classic { 0.0 } else { 1.0 },
+            fire_flicker: if classic { 0.0 } else { 1.0 },
+            moon_light: if classic { 0.0 } else { 1.0 },
+            moon_shadow_strength: match self {
+                Classic | Low => 0.0,
+                _ => 0.35,
+            },
+            night_gain: if classic { 1.0 } else { 0.45 },
+            interior_gain: if classic { 1.0 } else { 0.5 },
+            farclip: match self {
+                Classic | Low => 350.0,
+                Medium => 477.0,
+                High => 777.0,
+                Ultra => 1497.0,
+            },
+        }
+    }
+}
+
+/// What a preset decides in the world crate.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Look {
+    pub water_quality: u8,
+    pub sky_quality: u8,
+    pub modern_fog: bool,
+    pub sky_dither: bool,
+    pub foliage_wind: u8,
+    pub rain_surfaces: bool,
+    pub zone_skyboxes: bool,
+    pub interior_light: bool,
+    pub spell_light_gain: f32,
+    pub fire_light_gain: f32,
+    pub lava_light_gain: f32,
+    pub fire_flicker: f32,
+    pub moon_light: f32,
+    pub moon_shadow_strength: f32,
+    pub night_gain: f32,
+    pub interior_gain: f32,
+    pub farclip: f32,
+}
+
+/// Writes the look into the world's resources (creating a missing one, which its readers then find).
+pub fn apply(world: &mut World, look: &Look) {
+    world.insert_resource(WaterQuality(look.water_quality));
+    world.insert_resource(SkyQuality(look.sky_quality));
+    world
+        .get_resource_or_insert_with(FogModelSetting::default)
+        .set_from_cvar(if look.modern_fog { 1.0 } else { 0.0 });
+    world.insert_resource(SkyDither(look.sky_dither));
+    world.insert_resource(FoliageWind(look.foliage_wind));
+    world.insert_resource(RainSurfaces(look.rain_surfaces));
+    world.insert_resource(ZoneSkyboxes(look.zone_skyboxes));
+    world.insert_resource(SpellLightGain(look.spell_light_gain));
+    world.insert_resource(FireLightGain(look.fire_light_gain));
+    world.insert_resource(LavaLightGain(look.lava_light_gain));
+    world.insert_resource(MoonLight(look.moon_light));
+    world.insert_resource(MoonShadowStrength(look.moon_shadow_strength));
+    let mut interiors = world
+        .get_resource_or_insert_with(DynamicInteriors::default)
+        .into_inner()
+        .clone();
+    // The fork's registered defaults for the interior lane (`VideoConfig::default`), under the preset's
+    // on / off and gains.
+    interiors.enabled = look.interior_light;
+    interiors.ambient = 0.015;
+    interiors.fill = 0.08;
+    interiors.exposure = 2.5;
+    interiors.atten_scale = 1.6;
+    interiors.room_gate = true;
+    interiors.debug = 0;
+    interiors.flicker = look.fire_flicker;
+    interiors.night_gain = look.night_gain;
+    interiors.interior_gain = look.interior_gain;
+    interiors.daylight = 0.0;
+    interiors.bake_floor = 0.12;
+    world.insert_resource(interiors);
+    set_window_split(look.interior_light);
+    // An environment lever (`WOW_FARCLIP`) keeps its say over the view distance.
+    if std::env::var_os("WOW_FARCLIP").is_none() {
+        if let Some(mut view) = world.get_resource_mut::<ViewDistance>() {
+            view.farclip = look.farclip.clamp(
+                *benilla_world::view::FARCLIP_RANGE.start(),
+                *benilla_world::view::FARCLIP_RANGE.end(),
+            );
+        }
+    }
+}
+
+fn apply_preset(world: &mut World) {
+    let preset = Preset::from_env();
+    let look = preset.look();
+    apply(world, &look);
+    info!(
+        "graphics: {} (sky {}, water {}, wind {}, farclip {})",
+        preset.name(),
+        look.sky_quality,
+        look.water_quality,
+        look.foliage_wind,
+        look.farclip
+    );
+}
+
+pub fn plugin(app: &mut App) {
+    app.add_systems(PostStartup, apply_preset);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_preset_is_named_by_word_or_number_and_high_is_the_default() {
+        assert_eq!(Preset::parse("Ultra"), Some(Preset::Ultra));
+        assert_eq!(Preset::parse(" classic "), Some(Preset::Classic));
+        assert_eq!(Preset::parse("3"), Some(Preset::High));
+        assert_eq!(Preset::parse("custom"), None);
+        std::env::remove_var("WOWSOULS_GFX");
+        assert_eq!(Preset::from_env(), Preset::High);
+    }
+
+    #[test]
+    fn classic_is_the_reference_client_with_every_lane_off() {
+        let l = Preset::Classic.look();
+        assert_eq!((l.water_quality, l.sky_quality, l.foliage_wind), (0, 0, 0));
+        assert!(!l.modern_fog && !l.sky_dither && !l.rain_surfaces && !l.zone_skyboxes);
+        assert!(!l.interior_light);
+        assert_eq!(
+            (l.fire_light_gain, l.spell_light_gain, l.lava_light_gain),
+            (0.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            (l.night_gain, l.interior_gain, l.farclip),
+            (1.0, 1.0, 350.0)
+        );
+    }
+
+    #[test]
+    fn high_is_the_forks_high_column() {
+        let l = Preset::High.look();
+        assert_eq!((l.water_quality, l.sky_quality, l.foliage_wind), (2, 2, 2));
+        assert!(
+            l.modern_fog && l.sky_dither && l.rain_surfaces && l.zone_skyboxes && l.interior_light
+        );
+        assert_eq!(
+            (l.night_gain, l.interior_gain, l.moon_shadow_strength),
+            (0.45, 0.5, 0.35)
+        );
+        assert_eq!(l.farclip, 777.0);
+    }
+
+    #[test]
+    fn the_view_distance_grows_up_the_ladder() {
+        let far: Vec<f32> = [
+            Preset::Classic,
+            Preset::Low,
+            Preset::Medium,
+            Preset::High,
+            Preset::Ultra,
+        ]
+        .map(|p| p.look().farclip)
+        .to_vec();
+        assert!(far.windows(2).all(|w| w[0] <= w[1]), "{far:?}");
+        assert_eq!(far[4], 1497.0);
+    }
+}
