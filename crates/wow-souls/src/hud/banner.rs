@@ -4,7 +4,7 @@
 //! timing is ours (the layout's animation is not read yet).
 //!
 //! Dark Souls blends in gamma space and Bevy in linear, so a black overlay's alpha is raised to
-//! what a gamma blend would show ([`ds_alpha`]).
+//! what a gamma blend would show ([`reference_alpha`]).
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
@@ -44,7 +44,7 @@ pub fn phase(t: f32) -> Alphas {
 
 /// The alpha a linear blend needs so that a black overlay darkens as much as a gamma-space blend
 /// of alpha `a` does: `1 - (1 - a)^2.2`.
-pub fn ds_alpha(a: f32) -> f32 {
+pub fn reference_alpha(a: f32) -> f32 {
     1.0 - (1.0 - a.clamp(0.0, 1.0)).powf(2.2)
 }
 
@@ -60,7 +60,7 @@ pub fn gradient_pixels(top: Rgba, bottom: Rgba, rows: usize) -> Vec<u8> {
         for c in 0..4 {
             let mut v = top[c] + (bottom[c] - top[c]) * k;
             if c == 3 {
-                v = ds_alpha(v);
+                v = reference_alpha(v);
             }
             out.push((v.clamp(0.0, 1.0) * 255.0).round() as u8);
         }
@@ -82,8 +82,8 @@ enum Layer {
 }
 
 pub fn plugin(app: &mut App) {
-    let art = resource_exists::<HudArt>;
-    app.add_systems(OnEnter(Phase::Playing), spawn.run_if(art))
+    let art = resource_exists::<HudArt>.or(super::theme::enabled);
+    app.add_systems(OnEnter(Phase::Playing), spawn.run_if(art.clone()))
         .add_systems(Update, update.run_if(in_state(Phase::Playing)).run_if(art));
 }
 
@@ -120,7 +120,70 @@ fn strip(top: f32, height: f32) -> Node {
     }
 }
 
-fn spawn(mut commands: Commands, art: Res<HudArt>, mut images: ResMut<Assets<Image>>) {
+fn spawn(
+    mut commands: Commands,
+    art: Option<Res<HudArt>>,
+    mut images: ResMut<Assets<Image>>,
+    fonts: Res<crate::loot::ui::Fonts>,
+) {
+    if super::theme::enabled() {
+        let root = commands
+            .spawn((
+                BannerRoot,
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: percent(100),
+                    height: percent(100),
+                    ..default()
+                },
+                GlobalZIndex(60),
+                Visibility::Hidden,
+            ))
+            .id();
+        let full = || Node {
+            position_type: PositionType::Absolute,
+            width: percent(100),
+            height: percent(100),
+            ..default()
+        };
+        commands.spawn((
+            full(),
+            BackgroundColor(Color::NONE),
+            Layer::Dim,
+            ChildOf(root),
+        ));
+        commands.spawn((
+            strip(280.0, 135.0),
+            BackgroundColor(Color::NONE),
+            Layer::Band,
+            ChildOf(root),
+        ));
+        let text = super::theme::words(
+            &mut commands,
+            root,
+            "YOU DIED",
+            &fonts.title,
+            62.0,
+            Node {
+                position_type: PositionType::Absolute,
+                top: px(300),
+                width: percent(100),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        );
+        commands
+            .entity(text)
+            .insert((Layer::Text, TextLayout::new_with_justify(Justify::Center)));
+        commands.spawn((
+            full(),
+            BackgroundColor(Color::NONE),
+            Layer::Black,
+            ChildOf(root),
+        ));
+        return;
+    }
+    let Some(art) = art else { return };
     let m = &art.m;
     let root = commands
         .spawn((
@@ -191,9 +254,14 @@ fn spawn(mut commands: Commands, art: Res<HudArt>, mut images: ResMut<Assets<Ima
 fn update(
     real: Res<Time<Real>>,
     death: Res<Death>,
-    art: Res<HudArt>,
+    art: Option<Res<HudArt>>,
     mut root: Query<&mut Visibility, With<BannerRoot>>,
-    mut layers: Query<(&Layer, Option<&mut BackgroundColor>, Option<&mut ImageNode>)>,
+    mut layers: Query<(
+        &Layer,
+        Option<&mut BackgroundColor>,
+        Option<&mut ImageNode>,
+        Option<&mut TextColor>,
+    )>,
 ) {
     let Ok(mut vis) = root.single_mut() else {
         return;
@@ -208,11 +276,29 @@ fn update(
         *vis = Visibility::Inherited;
     }
     let a = phase(real.elapsed_secs() - at);
+    if super::theme::enabled() {
+        for (layer, bg, _, text) in &mut layers {
+            if let Some(mut bg) = bg {
+                let alpha = match layer {
+                    Layer::Dim => a.dim * 0.32,
+                    Layer::Band => a.band * 0.65,
+                    Layer::Black => a.black,
+                    _ => 0.0,
+                };
+                bg.0 = Color::srgba(0.0, 0.0, 0.0, alpha);
+            }
+            if let Some(mut text) = text {
+                text.0 = Color::srgba(0.49, 0.045, 0.035, a.text);
+            }
+        }
+        return;
+    }
+    let Some(art) = art else { return };
     let m = &art.m;
-    let dim = ds_alpha(m.fill("F23_YouDied/BG").color[3]) * a.dim;
-    let band = ds_alpha(m.fill("F23_YouDied/BG_bar").color[3]) * a.band;
+    let dim = reference_alpha(m.fill("F23_YouDied/BG").color[3]) * a.dim;
+    let band = reference_alpha(m.fill("F23_YouDied/BG_bar").color[3]) * a.band;
     let text_tint = m.sprite("F23_YouDied/main_text_youdied").tint;
-    for (layer, bg, image) in &mut layers {
+    for (layer, bg, image, _) in &mut layers {
         match (layer, bg, image) {
             (Layer::Dim, Some(mut bg), _) => bg.0 = Color::srgba(0.0, 0.0, 0.0, dim),
             (Layer::Band, Some(mut bg), _) => bg.0 = Color::srgba(0.0, 0.0, 0.0, band),
@@ -232,6 +318,29 @@ fn update(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn death_has_one_text_without_legacy_hud_cache() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .insert_resource(crate::loot::ui::Fonts {
+                body: Handle::default(),
+                title: Handle::default(),
+            });
+        crate::hurt::plugin(&mut app);
+        plugin(&mut app);
+        app.world_mut().run_schedule(OnEnter(Phase::Playing));
+
+        let mut texts = app.world_mut().query::<&Text>();
+        assert_eq!(
+            texts
+                .iter(app.world())
+                .filter(|text| text.0 == "YOU DIED")
+                .count(),
+            1,
+            "the banner and its plain fallback must never overlap"
+        );
+    }
 
     #[test]
     fn nothing_shows_before_the_death() {
@@ -275,11 +384,11 @@ mod tests {
 
     #[test]
     fn black_overlays_blend_like_dark_souls() {
-        assert_eq!(ds_alpha(0.0), 0.0);
-        assert_eq!(ds_alpha(1.0), 1.0);
+        assert_eq!(reference_alpha(0.0), 0.0);
+        assert_eq!(reference_alpha(1.0), 1.0);
         // The band's 200 / 255: a gamma blend leaves 22 % of the scene, a linear one needs 96 %.
-        assert!((ds_alpha(200.0 / 255.0) - 0.964).abs() < 0.005);
-        assert!(ds_alpha(0.5) > 0.5);
+        assert!((reference_alpha(200.0 / 255.0) - 0.964).abs() < 0.005);
+        assert!(reference_alpha(0.5) > 0.5);
     }
 
     #[test]
@@ -287,7 +396,10 @@ mod tests {
         let px = gradient_pixels([0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 200.0 / 255.0], 5);
         assert_eq!(px.len(), 20);
         assert_eq!(&px[0..4], &[0, 0, 0, 0]);
-        assert_eq!(px[19], (ds_alpha(200.0 / 255.0) * 255.0).round() as u8);
+        assert_eq!(
+            px[19],
+            (reference_alpha(200.0 / 255.0) * 255.0).round() as u8
+        );
         assert!(px[7] < px[11] && px[11] < px[15], "{px:?}");
     }
 }

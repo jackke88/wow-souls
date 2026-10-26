@@ -218,6 +218,55 @@ pub fn camera_relative(push: Vec2, yaw: f32) -> Vec3 {
     (right * push.x + forward * push.y).clamp_length_max(1.0)
 }
 
+/// The walking inertia's state ([`crate::glide`]): the velocity the body has built up under the
+/// stick, and what was handed the motor last frame (if the intent still is that, no action has
+/// had the body since, and the build-up is still the body's own).
+#[derive(Default)]
+pub struct Walking {
+    vel: Vec3,
+    written: Option<(Vec3, f32, bool)>,
+}
+
+/// The stick's intent `raw` as the body's own build-up of speed: the velocity follows the stick at
+/// a bounded acceleration, and goes out as a direction and speed whose product it is (the stick's
+/// length stays the direction's, so a roll or a guard reads it as it always did). `now` is the
+/// intent as the last frame left it, `achieved` what the motor made of it.
+fn glide_intent(
+    raw: MoveIntent,
+    now: MoveIntent,
+    achieved: Vec3,
+    walking: &mut Walking,
+    dt: f32,
+) -> MoveIntent {
+    if !crate::glide::enabled() {
+        return raw;
+    }
+    let ours = walking.written == Some((now.dir, now.speed, now.jump));
+    if !ours {
+        // An action, a knock-back or a screen had the body: go on from what it achieved.
+        walking.vel = Vec3::new(achieved.x, 0.0, achieved.z).clamp_length_max(RUN_SPEED);
+    }
+    let push = raw.dir.clamp_length_max(1.0);
+    walking.vel = crate::glide::follow(walking.vel, push * raw.speed, dt);
+    let speed = walking.vel.length();
+    let held = push.length();
+    let (dir, speed) = if speed < 1.0e-3 {
+        walking.vel = Vec3::ZERO;
+        (Vec3::ZERO, raw.speed)
+    } else if held > 0.05 {
+        (walking.vel / speed * held, speed / held)
+    } else {
+        (walking.vel / speed, speed)
+    };
+    let out = MoveIntent {
+        dir,
+        speed,
+        jump: raw.jump,
+    };
+    walking.written = Some((out.dir, out.speed, out.jump));
+    out
+}
+
 pub fn read_intent(
     time: Res<Time>,
     controls: Controls,
@@ -225,23 +274,25 @@ pub fn read_intent(
     drive: Option<Res<ScriptedDrive>>,
     (window, real): (Option<Res<DriveWindow>>, Res<Time<bevy::time::Real>>),
     unattended: Option<Res<crate::run_mode::Unattended>>,
-    mut since_jump: Local<f32>,
+    (mut since_jump, mut walking): (Local<f32>, Local<Walking>),
     mode: Res<CamMode>,
     loot_screen: Res<crate::loot::Screen>,
     cam: Query<&OrbitCam>,
     lock: Res<crate::lockon::LockOn>,
-    mut avatar: Query<&mut MoveIntent, With<Avatar>>,
+    mut avatar: Query<(&mut MoveIntent, &Motor), With<Avatar>>,
 ) {
-    let Ok(mut intent) = avatar.single_mut() else {
+    let Ok((mut intent, motor)) = avatar.single_mut() else {
         return;
     };
     if loot_screen.locked() {
         *intent = MoveIntent::default();
+        *walking = Walking::default();
         return;
     }
     // The free camera owns WASD; the body stands.
     let (CamMode::Orbit, Ok(cam)) = (*mode, cam.single()) else {
         *intent = MoveIntent::default();
+        *walking = Walking::default();
         return;
     };
     let mut pad = if unattended.is_some() {
@@ -260,7 +311,7 @@ pub fn read_intent(
             pad.jump = true;
         }
     }
-    *intent = MoveIntent {
+    let raw = MoveIntent {
         dir: camera_relative(pad.push, cam.yaw),
         speed: match (pad.walk, lock.target.is_some()) {
             (true, _) => WALK_SPEED,
@@ -271,20 +322,114 @@ pub fn read_intent(
         // A jump press that confirmed a dialogue is the dialogue's, not the body's.
         jump: pad.jump && !loot_screen.blocks_actions(real.elapsed_secs()),
     };
+    // The body builds its speed under the stick ([`crate::glide`]); what an action carries it by
+    // overwrites this later in the frame, as it always did.
+    *intent = glide_intent(
+        raw,
+        *intent,
+        motor.velocity,
+        &mut walking,
+        time.delta_secs(),
+    );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn drive_motor(
+    mut commands: Commands,
     time: Res<Time>,
     collide: WorldCollision,
+    water: benilla_world::world_point::WorldPoint,
     shape: Res<BodyShape>,
     spawn: Option<Res<SpawnPoint>>,
-    mut avatar: Query<(&mut Transform, &mut Motor, &MoveIntent), With<Avatar>>,
+    snare: Option<Res<crate::latch::Snare>>,
+    (controls, gamepads, unattended, cam): (
+        Controls,
+        Query<&Gamepad>,
+        Option<Res<crate::run_mode::Unattended>>,
+        Query<&OrbitCam>,
+    ),
+    mut avatar: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut Motor,
+            &MoveIntent,
+            Option<&mut motor::swim::Swimming>,
+        ),
+        With<Avatar>,
+    >,
 ) {
-    let Ok((mut xf, mut m, intent)) = avatar.single_mut() else {
+    let Ok((entity, mut xf, mut m, intent, swimming)) = avatar.single_mut() else {
+        return;
+    };
+    let Some(mut swimming) = swimming else {
+        commands
+            .entity(entity)
+            .insert(motor::swim::Swimming::default());
         return;
     };
     let mut feet = xf.translation;
-    motor::step(&mut m, &mut feet, time.delta(), &collide, &shape.0, *intent);
+    // A spider hanging on slows the body ([`crate::latch`]).
+    let intent = MoveIntent {
+        speed: intent.speed * snare.map_or(1.0, |s| s.0),
+        ..*intent
+    };
+    // Deep water: the body swims ([`motor::swim`]).
+    let surface = water.water_surface_at(
+        benilla_world::world_point::Subject::Player,
+        benilla_assets::coords::bevy_to_wow(feet),
+    );
+    let was = swimming.on;
+    swimming.on = motor::swim::latch(was, surface, feet.y);
+    swimming.surface = surface;
+    if swimming.on != was {
+        info!(
+            "swim: {} at {feet:?} (surface {surface:?})",
+            if swimming.on {
+                "starts swimming"
+            } else {
+                "leaves the water"
+            }
+        );
+    }
+    if let (true, Some(surface)) = (swimming.on, surface) {
+        let up = unattended.is_none()
+            && (controls.read(|binds, held| binds.pressed(Action::Jump, held))
+                || gamepads.iter().any(|p| p.pressed(GamepadButton::South)));
+        let (yaw, cam_pitch) = cam.single().map_or((0.0, 0.0), |c| (c.yaw, c.pitch));
+        // `WOWSOULS_DIVE=<pitch>`: an unattended run's camera pitch for the stroke (a dive test).
+        let cam_pitch = std::env::var("WOWSOULS_DIVE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(cam_pitch);
+        let forward = camera_relative(Vec2::Y, yaw);
+        let pitch = motor::swim::dive_pitch(cam_pitch);
+        // A negative speed is an action's recoil, nothing a swimmer does.
+        let push = if intent.speed > 0.0 {
+            intent.dir.clamp_length_max(1.0)
+        } else {
+            Vec3::ZERO
+        };
+        let velocity = motor::swim::stroke(push, forward, pitch, up);
+        swimming.pitch = if push.dot(forward) > 0.1 { pitch } else { 0.0 };
+        motor::swim::step(
+            &mut m,
+            &mut feet,
+            time.delta(),
+            &collide,
+            &shape.0,
+            velocity,
+            surface,
+        );
+        // At the waterline a climb runs level: so does the body.
+        if swimming.pitch > 0.0 && feet.y >= surface - motor::swim::enter_depth() - 0.05 {
+            swimming.pitch = 0.0;
+        }
+        xf.translation = feet;
+        return;
+    }
+    swimming.pitch = 0.0;
+    motor::step(&mut m, &mut feet, time.delta(), &collide, &shape.0, intent);
     if let Some(spawn) = spawn.as_deref() {
         if feet.y < spawn.0.y - VOID_DEPTH {
             warn!("motor: the body fell out of the world at {feet:?}; back to the spawn");
@@ -309,11 +454,12 @@ fn face_motion(
             &MoveIntent,
             Option<&crate::combat::Action>,
             Option<&crate::shove::Shove>,
+            Option<&motor::swim::Swimming>,
         ),
         With<Avatar>,
     >,
 ) {
-    let Ok((mut xf, m, intent, action, shoved)) = avatar.single_mut() else {
+    let Ok((mut xf, m, intent, action, shoved, swimming)) = avatar.single_mut() else {
         return;
     };
     if interaction.0.is_some() {
@@ -330,7 +476,12 @@ fn face_motion(
                 })
         )
     });
-    if !m.grounded || shoved.is_some() || reeling || action.is_some_and(|a| a.evading().is_some()) {
+    let afloat = swimming.is_some_and(|s| s.on);
+    if !(m.grounded || afloat)
+        || shoved.is_some()
+        || reeling
+        || action.is_some_and(|a| a.evading().is_some())
+    {
         return;
     }
     // Locked, the body faces the target whatever it does; otherwise where it goes.

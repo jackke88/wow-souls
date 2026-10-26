@@ -2,6 +2,15 @@
 
 Fullständig katalog över animationer, klipp-ID:n, filnamn och skelettmappning för både **Dark Souls Remastered (DSR)** och **World of Warcraft 1.12.1 (M2)**.
 
+Alla aktuella importerade spel-/referensklipp finns nu som redigerbar projekttext i
+[`anim/source/`](../anim/README.md), utan Git-ignore eller DSR-installationskrav för uppspelning.
+Bibliotekets README beskriver format, mappar, kontroller och hur kurvorna ändras.
+
+Gemensamt arbetsflöde för **DSR och Elden Ring** (båda finns nu på datorn):
+[SOURCE-TO-ORIGINAL.md](SOURCE-TO-ORIGINAL.md). Integrera källmaterialet och testa det i spelet,
+skapa och testa vår egen ersättning, avveckla sedan källberoendet. Slutversionen ska fungera
+utan dessa spel och utan deras extraherade eller bearbetade data.
+
 Dokumentet är uppdelat i:
 1. **Spelaren (Player / Human):** DSR `c0000` Havok HKX clips vs WoW `HumanMale.m2` (`AnimationData.dbc`)
 2. **Kobold (Undead Hollow):** DSR `c2060`/`c2100` clips vs WoW `Kobold.m2`

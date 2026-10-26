@@ -18,9 +18,14 @@ pub fn buy_cost(item: &Item) -> Option<u32> {
     (item.buy_price > 0).then(|| item.buy_price.saturating_mul(SOULS_PER_COPPER))
 }
 
+/// How many souls one copper of a sale pays: a quarter of the buying rate (2026-10-18, the user: souls came
+/// too easily, 151,218 at level 8, most of it vendor trash). WoW already sells at a quarter of the price,
+/// so trash is now worth a sixteenth of its shop price.
+pub const SELL_SOULS_PER_COPPER: u32 = 1;
+
 /// The souls a vendor pays for one of an item; `None` for an item that has no value (a quest item).
 pub fn sell_value(item: &Item) -> Option<u32> {
-    (item.sell_price > 0).then(|| item.sell_price.saturating_mul(SOULS_PER_COPPER))
+    (item.sell_price > 0).then(|| item.sell_price.saturating_mul(SELL_SOULS_PER_COPPER))
 }
 
 /// The copper of a quest reward as souls.
@@ -229,7 +234,7 @@ mod tests {
     fn prices_are_wows_copper_at_four_souls_to_the_copper() {
         let vest = item(2127, 60, 12);
         assert_eq!(buy_cost(&vest), Some(240));
-        assert_eq!(sell_value(&vest), Some(48));
+        assert_eq!(sell_value(&vest), Some(12), "a sale pays a soul a copper");
         assert_eq!(buy_cost(&item(1, 0, 5)), None, "no price, not for sale");
         assert_eq!(sell_value(&item(1, 5, 0)), None, "no value, cannot be sold");
         assert_eq!(souls_for_copper(25), 100);
@@ -262,8 +267,8 @@ mod tests {
         let mut souls = 300;
         assert_eq!(buy(&mut p, &mut souls, &vest, 1), Ok(240));
         assert_eq!((souls, p.inventory.count(2127)), (60, 1));
-        assert_eq!(sell(&mut p, &mut souls, &vest, 1, &|_| 0), Ok(48));
-        assert_eq!((souls, p.inventory.count(2127)), (108, 0));
+        assert_eq!(sell(&mut p, &mut souls, &vest, 1, &|_| 0), Ok(12));
+        assert_eq!((souls, p.inventory.count(2127)), (72, 0));
     }
 
     #[test]
@@ -304,8 +309,8 @@ mod tests {
             sell(&mut p, &mut souls, &fang, 23, &needed),
             Err(Refusal::Needed)
         );
-        assert_eq!(sell(&mut p, &mut souls, &fang, 15, &needed), Ok(180));
-        assert_eq!((souls, p.inventory.count(7073)), (180, 8));
+        assert_eq!(sell(&mut p, &mut souls, &fang, 15, &needed), Ok(45));
+        assert_eq!((souls, p.inventory.count(7073)), (45, 8));
         assert_eq!(
             sell(&mut p, &mut souls, &fang, 1, &needed),
             Err(Refusal::Needed)

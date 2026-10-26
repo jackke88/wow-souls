@@ -7,6 +7,7 @@ use anyhow::{anyhow, Context, Result};
 use glam::Vec3;
 
 pub const HUMAN_MALE_M2: &str = "Character\\Human\\Male\\HumanMale.m2";
+pub const HUMAN_FEMALE_M2: &str = "Character\\Human\\Female\\HumanFemale.m2";
 
 #[derive(Debug, Clone)]
 pub struct WowSkel {
@@ -22,6 +23,15 @@ pub fn wow_to_bevy(x: f32, y: f32, z: f32) -> Vec3 {
 
 pub const KOBOLD_M2: &str = "Creature\\Kobold\\Kobold.m2";
 pub const WOLF_M2: &str = "Creature\\Wolf\\Wolf.m2";
+pub const DIREWOLF_M2: &str = "Creature\\DireWolf\\DireWolf.m2";
+pub const GNOLL_M2: &str = "Creature\\GnollMelee\\GnollMelee.m2";
+pub const MURLOC_M2: &str = "Creature\\Murloc\\Murloc.m2";
+pub const BOAR_M2: &str = "Creature\\Boar\\Boar.m2";
+pub const BEAR_M2: &str = "Creature\\bear\\Bear.m2";
+pub const GOBLIN_M2: &str = "Character\\Goblin\\Male\\GoblinMale.m2";
+pub const HUMAN_THIEF_M2: &str = "Creature\\HumanThief\\HumanThief.m2";
+pub const MINESPIDER_M2: &str = "Creature\\MineSpider\\MineSpider.m2";
+pub const TARANTULA_M2: &str = "Creature\\Tarantula\\Tarantula.m2";
 
 /// The bones of the M2 `model` (parents, pivots in Bevy axes) from the install's data directory.
 pub fn skeleton(data_dir: &Path, model: &str) -> Result<WowSkel> {
@@ -87,5 +97,34 @@ mod tests {
         );
         // Feet stand near the ground, the hips at about 0.74.
         assert!(k.pivots[55].y < 0.05 && (k.pivots[27].y - 0.743).abs() < 0.02);
+    }
+
+    #[test]
+    fn install_the_direwolf_has_its_own_body_root_and_leg_chains() {
+        let Ok(data) = std::env::var("WOW_DATA") else {
+            eprintln!("skipped: WOW_DATA not set");
+            return;
+        };
+        let k = skeleton(Path::new(&data), DIREWOLF_M2).unwrap();
+        assert_eq!(k.parents.len(), 61);
+        assert_eq!((k.parents[19], k.parents[20], k.parents[21]), (0, 19, 19));
+        assert_eq!((k.parents[24], k.parents[30]), (20, 24));
+        for chain in [
+            [20, 22, 28, 42, 53],
+            [20, 23, 29, 43, 54],
+            [30, 44, 50, 55, 58],
+            [30, 45, 51, 56, 59],
+            [30, 46, 52, 57, 60],
+        ] {
+            for link in chain.windows(2) {
+                assert_eq!(k.parents[link[1]], link[0] as i16, "{chain:?}");
+            }
+        }
+        assert_eq!((k.parents[25], k.parents[35]), (21, 25));
+        // +Y is left in WoW, or -X in Bevy. The front toes are below the wrists.
+        assert!(k.pivots[22].x < 0.0 && k.pivots[23].x > 0.0);
+        assert!(k.pivots[44].x < 0.0 && k.pivots[45].x > 0.0);
+        assert!(k.pivots[53].y < k.pivots[42].y);
+        assert!(k.pivots[54].y < k.pivots[43].y);
     }
 }

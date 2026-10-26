@@ -1,0 +1,20 @@
+wsweapons 1
+family dagger weapons/dagger
+family straight_sword weapons/straight_sword
+family straight_sword_2h weapons/straight_sword_2h
+family dagger_2h weapons/dagger_2h
+family greatsword weapons/greatsword
+family axe weapons/axe
+family axe_2h weapons/axe_2h
+family greataxe weapons/greataxe
+family mace weapons/mace
+family mace_2h weapons/mace_2h
+family great_hammer weapons/great_hammer
+family polearm weapons/polearm
+family staff weapons/staff
+family fist weapons/fist
+family unarmed weapons/unarmed
+family bow weapons/bow
+family crossbow weapons/crossbow
+family gun weapons/gun
+family thrown weapons/thrown

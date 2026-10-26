@@ -196,6 +196,16 @@ impl Player {
             .collect()
     }
 
+    /// The instant a magic bullet leaves the hand in an animation (the first type-64 event): where a
+    /// pyromancy or miracle clip releases its spell. `None` for a clip without one (a sorcery cast).
+    pub fn bullet_spawn(&self, stem: &str) -> Option<f32> {
+        self.events(stem)
+            .iter()
+            .filter(|e| e.kind == tae::BULLET_BEHAVIOR)
+            .map(|e| e.start)
+            .reduce(f32::min)
+    }
+
     /// The `ChrActionFlag` windows of an animation.
     pub fn flags(&self, stem: &str) -> Vec<wscl::FlagWindow> {
         self.events(stem)

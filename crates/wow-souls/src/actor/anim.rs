@@ -28,6 +28,9 @@ pub mod ids {
     pub const JUMP: u16 = 38;
     pub const JUMP_END: u16 = 39;
     pub const FALL: u16 = 40;
+    pub const SWIM_IDLE: u16 = 41;
+    pub const SWIM: u16 = 42;
+    pub const SWIM_BACKWARDS: u16 = 45;
 }
 
 /// Stand → Walk above this planar speed (yd/s), Walk → Stand below the lower one.
@@ -60,6 +63,10 @@ pub enum Gait {
     Backpedal,
     StrafeLeft,
     StrafeRight,
+    /// Afloat ([`crate::motor::swim`]): treading water, stroking, backing.
+    SwimIdle,
+    Swim,
+    SwimBack,
 }
 
 impl Gait {
@@ -75,6 +82,9 @@ impl Gait {
             Gait::Backpedal => ids::WALK_BACKWARDS,
             Gait::StrafeLeft => ids::SHUFFLE_LEFT,
             Gait::StrafeRight => ids::SHUFFLE_RIGHT,
+            Gait::SwimIdle => ids::SWIM_IDLE,
+            Gait::Swim => ids::SWIM,
+            Gait::SwimBack => ids::SWIM_BACKWARDS,
         }
     }
 
@@ -87,7 +97,13 @@ impl Gait {
     pub fn rate_scaled(self) -> bool {
         matches!(
             self,
-            Gait::Walk | Gait::Run | Gait::Backpedal | Gait::StrafeLeft | Gait::StrafeRight
+            Gait::Walk
+                | Gait::Run
+                | Gait::Backpedal
+                | Gait::StrafeLeft
+                | Gait::StrafeRight
+                | Gait::Swim
+                | Gait::SwimBack
         )
     }
 
@@ -171,6 +187,18 @@ pub fn strafe_gait(current: Gait, local: Vec2, speed: f32) -> Gait {
 }
 
 /// The next gait.
+/// Afloat: treading water when still, else the stroke, or the backstroke when going backwards
+/// (`local` is the velocity in the body's own frame, -Z forward).
+pub fn swim_gait(speed: f32, local: Vec3) -> Gait {
+    if speed < WALK_ON {
+        Gait::SwimIdle
+    } else if local.z > 0.3 * speed {
+        Gait::SwimBack
+    } else {
+        Gait::Swim
+    }
+}
+
 pub fn next_gait(current: Gait, i: LocoInput) -> Gait {
     if i.jumped {
         return Gait::JumpStart;
@@ -223,6 +251,21 @@ impl Locomotion {
     }
 }
 
+/// The clip a gait plays and whether it plays backwards. A model without the clip goes on as well as
+/// it can: a creature without Jump stands through it, one without a backward step walks its walk
+/// backwards (a reversed cycle), one without a sidestep walks.
+pub fn gait_clip(anims: &ModelAnimations, gait: Gait) -> Option<(&benilla_assets::AnimClip, bool)> {
+    if let Some(c) = anims.find(gait.anim_id()) {
+        return Some((c, false));
+    }
+    match gait {
+        Gait::Backpedal => anims.find(ids::WALK).map(|c| (c, true)),
+        Gait::StrafeLeft | Gait::StrafeRight => anims.find(ids::WALK).map(|c| (c, false)),
+        Gait::Swim | Gait::SwimBack => anims.find(ids::SWIM_IDLE).map(|c| (c, false)),
+        _ => anims.find(ids::STAND).map(|c| (c, false)),
+    }
+}
+
 /// Plays a gait's clip on the body; returns the node, or `None` when the model has no such clip.
 fn arm(
     anims: &ModelAnimations,
@@ -231,10 +274,7 @@ fn arm(
     gait: Gait,
     speed: f32,
 ) -> Option<AnimationNodeIndex> {
-    // A model without the clip falls back to Stand, as a creature without Jump stands through it.
-    let clip = anims
-        .find(gait.anim_id())
-        .or_else(|| anims.find(ids::STAND))?;
+    let (clip, reversed) = gait_clip(anims, gait)?;
     let active = transitions.play(
         player,
         clip.node,
@@ -245,7 +285,7 @@ fn arm(
     } else {
         RepeatAnimation::Forever
     });
-    active.set_speed(rate(gait, clip.move_speed, speed));
+    active.set_speed(rate(gait, clip.move_speed, speed) * if reversed { -1.0 } else { 1.0 });
     Some(clip.node)
 }
 
@@ -258,7 +298,7 @@ pub fn rate(gait: Gait, move_speed: f32, speed: f32) -> f32 {
         return 1.0;
     }
     let divisor = match gait {
-        Gait::Walk | Gait::Run => move_speed,
+        Gait::Walk | Gait::Run | Gait::Swim => move_speed,
         _ if move_speed.abs() > 0.0 => move_speed.abs(),
         _ => crate::motor::WALK_SPEED,
     };
@@ -286,6 +326,8 @@ pub fn drive(
         Option<&crate::npc::Brain>,
         Option<&crate::npc::Reaction>,
         Has<crate::abilities::moves::Casting>,
+        Option<&crate::village::Citizen>,
+        Option<&crate::motor::swim::Swimming>,
         &ModelAnimations,
         &mut AnimationPlayer,
         &mut AnimationTransitions,
@@ -301,6 +343,8 @@ pub fn drive(
         brain,
         reaction,
         casting,
+        citizen,
+        swimming,
         anims,
         mut player,
         mut transitions,
@@ -309,7 +353,8 @@ pub fn drive(
     {
         // An action (a swing, a flinch, a death, a cast) plays its own clip; the gait re-arms when it
         // lets go of the body.
-        if casting
+        if citizen.is_some_and(crate::village::Citizen::owns_animation)
+            || casting
             || action.is_some_and(|a| a.owns_body() && !a.guarding())
             || brain.is_some_and(crate::npc::Brain::owns_body)
             || reaction.is_some_and(|r| *r != crate::npc::Reaction::None)
@@ -338,12 +383,19 @@ pub fn drive(
             speed,
             airborne_for: loco.airborne_for,
             clip_done,
-            strafe: (is_avatar && lock.target.is_some()).then(|| {
+            // Locked on, the avatar steps by direction; a creature that is after the player does
+            // too (it keeps its face to it while it circles and steps back).
+            strafe: ((is_avatar && lock.target.is_some())
+                || brain.is_some_and(|b| b.mind.engaged()))
+            .then(|| {
                 let local = xf.rotation.inverse() * loco.smoothed;
                 Vec2::new(local.x, -local.z)
             }),
         };
-        let next = next_gait(loco.gait, input);
+        let next = match swimming.filter(|s| s.on) {
+            Some(_) => swim_gait(speed, xf.rotation.inverse() * loco.smoothed),
+            None => next_gait(loco.gait, input),
+        };
         if next != loco.gait || loco.playing.is_none() || (m.last.jumped && next.one_shot()) {
             if trace_on() {
                 let clip = anims.find(next.anim_id());
@@ -357,9 +409,11 @@ pub fn drive(
             loco.playing = arm(anims, &mut player, &mut transitions, next, speed);
         } else if next.rate_scaled() {
             // Keep the stride matched to the ground as the speed changes.
-            if let Some(clip) = anims.find(next.anim_id()) {
+            if let Some((clip, reversed)) = gait_clip(anims, next) {
                 if let Some(active) = loco.playing.and_then(|n| player.animation_mut(n)) {
-                    active.set_speed(rate(next, clip.move_speed, speed));
+                    active.set_speed(
+                        rate(next, clip.move_speed, speed) * if reversed { -1.0 } else { 1.0 },
+                    );
                 }
             }
         }

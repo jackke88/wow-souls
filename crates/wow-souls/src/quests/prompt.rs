@@ -60,14 +60,26 @@ pub(super) fn find(
     log: Res<LogScreen>,
     screen: Res<Screen>,
     eligibility: Res<QuestLootEligibility>,
+    objects: Res<objects::Objects>,
     avatar: Query<(&Transform, &Action, &Health), With<Avatar>>,
     npcs: Query<(&Transform, &Npc, Option<&Name>), Without<Avatar>>,
     crates: Query<(Entity, &Transform, &objects::QuestObject), Without<Avatar>>,
+    (binding, mut bound_events, real, mut bound_notice_until): (
+        Res<crate::soulbind::Binding>,
+        MessageReader<crate::soulbind::SoulBound>,
+        Res<Time<Real>>,
+        Local<f32>,
+    ),
     mut interact: ResMut<Interact>,
 ) {
+    // Let the binding and quest confirmations use this space before offering another bind.
+    if bound_events.read().count() > 0 {
+        *bound_notice_until = real.elapsed_secs() + 5.0;
+    }
     let mut want: Option<Target> = None;
     if let (Some(game), Ok((me, action, health))) = (game, avatar.single()) {
         let free = talk.0.is_none()
+            && real.elapsed_secs() >= *bound_notice_until
             && !log.open
             && !screen.locked()
             && !screen.modal
@@ -76,14 +88,45 @@ pub(super) fn find(
             && !action.is_dead()
             && !action.owns_body();
         if free {
-            want = nearest_person(&game, me.translation, &npcs).or_else(|| {
-                (!eligibility.0.is_empty() && objects::nearest(&crates, me.translation).is_some())
-                    .then(|| Target {
-                        verb: "Gather",
-                        name: "Grape crate".to_string(),
-                        hint: "",
-                    })
-            });
+            want = crate::soulbind::nearest(&binding.sites, me.translation)
+                .map(|site| Target {
+                    verb: "Bind Soul",
+                    name: format!("{} Memorial", site.name),
+                    hint: if binding.bound == Some(site.id) {
+                        "Your soul is bound here"
+                    } else {
+                        "Return here when you die"
+                    },
+                })
+                .or_else(|| nearest_person(&game, me.translation, &npcs))
+                .or_else(|| {
+                    objects::nearest_talkable(&crates, &objects, &game, me.translation).and_then(
+                        |(_, idx, mark)| {
+                            let spot = objects.spots.get(idx)?;
+                            Some(Target {
+                                verb: "Talk",
+                                name: spot.name.clone(),
+                                hint: hint_of(mark),
+                            })
+                        },
+                    )
+                })
+                .or_else(|| {
+                    objects::nearest_gatherable(&crates, &objects, me.translation, &eligibility.0)
+                        .and_then(|(_, idx)| {
+                            let spot = objects.spots.get(idx)?;
+                            let name = if spot.entry == objects::CRATE_ENTRY {
+                                "Grape crate".to_string()
+                            } else {
+                                spot.name.clone()
+                            };
+                            Some(Target {
+                                verb: "Gather",
+                                name,
+                                hint: "",
+                            })
+                        })
+                });
         }
     }
     if interact.0 != want {

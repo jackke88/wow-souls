@@ -1,10 +1,10 @@
 //! The boss bar in the Dark Souls style: the layout's own `F20_boss_HP`, a wide bar at the bottom
 //! centre with the boss's name above its left end and the damage just dealt at its right, drawn
-//! while a creature of a boss species ([`crate::species::Boss`]) fights. The dark red fill is its
+//! while a boss or one of Elwynn's rares and named ([`crate::species::BossBar`]) fights. The dark red fill is its
 //! health; behind it the olive chip keeps what the last blow took off for a moment. The bar goes
 //! when the boss loses interest, and a moment after it dies (with its last damage number).
 //!
-//! Without the layout in the HUD cache (an old `wow-souls-dsr hud` run) there is no boss bar.
+//! The active boss bar is native UI; legacy layout structs remain for compatibility tests.
 
 use bevy::prelude::*;
 use bevy::time::Real;
@@ -18,7 +18,7 @@ use crate::combat::Health;
 use crate::hits::Hit;
 use crate::npc::Hostile;
 use crate::settle::Phase;
-use crate::species::Boss;
+use crate::species::BossBar;
 
 /// The chip holds this long (s) after a blow, then drains this fast (of the maximum per s).
 const CHIP_HOLD: f32 = 0.6;
@@ -52,6 +52,7 @@ struct BossUi {
     cur: Entity,
     name: Entity,
     damage: Entity,
+    full: f32,
 }
 
 /// What the bar follows: the boss, its damage run and its chip.
@@ -73,12 +74,75 @@ pub fn plugin(app: &mut App) {
         );
 }
 
-fn spawn(mut commands: Commands, art: Option<Res<HudArt>>) {
+fn spawn(mut commands: Commands, art: Option<Res<HudArt>>, fonts: Res<crate::loot::ui::Fonts>) {
+    if super::theme::enabled() {
+        let root = commands
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: percent(50),
+                    margin: UiRect::left(px(-340)),
+                    bottom: px(134),
+                    width: px(680),
+                    height: px(34),
+                    ..default()
+                },
+                Visibility::Hidden,
+            ))
+            .id();
+        let (_, chip, cur) = super::theme::meter(
+            &mut commands,
+            root,
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: px(0),
+                width: px(680),
+                height: px(8),
+                ..default()
+            },
+            Color::srgb(0.52, 0.09, 0.075),
+        );
+        let name = super::theme::words(
+            &mut commands,
+            root,
+            "",
+            &fonts.body,
+            17.0,
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(0),
+                top: px(0),
+                ..default()
+            },
+        );
+        let damage = super::theme::words(
+            &mut commands,
+            root,
+            "",
+            &fonts.body,
+            15.0,
+            Node {
+                position_type: PositionType::Absolute,
+                right: px(0),
+                top: px(0),
+                ..default()
+            },
+        );
+        commands.insert_resource(BossUi {
+            root,
+            chip,
+            cur,
+            name,
+            damage,
+            full: 678.6,
+        });
+        return;
+    }
     let Some(art) = art else {
         return;
     };
     if !available(&art) {
-        info!("hud: the HUD cache has no boss bar (run `wow-souls-dsr hud`)");
+        info!("hud: the HUD cache has no boss bar (legacy layout is unavailable)");
         return;
     }
     // A layout-sized box in the middle of the window: the layout's own rectangles sit inside it.
@@ -132,6 +196,7 @@ fn spawn(mut commands: Commands, art: Option<Res<HudArt>>) {
         cur,
         name,
         damage,
+        full,
     });
 }
 
@@ -147,13 +212,13 @@ pub fn shows(engaged: bool, alive: bool, since_last_blow: f32) -> bool {
 #[allow(clippy::too_many_arguments)]
 fn update(
     real: Res<Time<Real>>,
-    art: Res<HudArt>,
     ui: Res<BossUi>,
     mut follow: ResMut<Follow>,
     mut hits: MessageReader<Hit>,
-    bosses: Query<(Entity, &Health, &Hostile, &Name), With<Boss>>,
+    bosses: Query<(Entity, &Health, &Hostile, &Name), With<BossBar>>,
     mut nodes: Query<&mut Node>,
     mut texts: Query<&mut BitmapText>,
+    mut native_texts: Query<&mut Text>,
     mut vis: Query<&mut Visibility>,
 ) {
     let now = real.elapsed_secs();
@@ -190,20 +255,33 @@ fn update(
     let Some((_, hp, _, name)) = shown else {
         return;
     };
-    let full = art.m.sprite("F20_boss_HP/HP_bar1").rect.w();
+    let full = ui.full;
     let chip = follow.chip.get_or_insert_with(|| Chip::new(hp.cur));
     chip.step(hp.cur, hp.max, dt, CHIP_HOLD, CHIP_DRAIN);
     let chip_shown = chip.shown;
     if let Ok(mut n) = nodes.get_mut(ui.cur) {
-        n.width = px(full * fraction(hp.cur, hp.max));
+        n.width = if super::theme::enabled() {
+            percent(fraction(hp.cur, hp.max) * 100.0)
+        } else {
+            px(full * fraction(hp.cur, hp.max))
+        };
     }
     if let Ok(mut n) = nodes.get_mut(ui.chip) {
-        n.width = px(full * fraction(chip_shown, hp.max));
+        n.width = if super::theme::enabled() {
+            percent(fraction(chip_shown, hp.max) * 100.0)
+        } else {
+            px(full * fraction(chip_shown, hp.max))
+        };
     }
     let title = display_name(name.as_str());
     if let Ok(mut t) = texts.get_mut(ui.name) {
         if t.text != title {
-            t.text = title;
+            t.text = title.clone();
+        }
+    }
+    if let Ok(mut t) = native_texts.get_mut(ui.name) {
+        if t.0 != title {
+            t.0 = title;
         }
     }
     let number = follow
@@ -212,7 +290,12 @@ fn update(
         .map_or_else(String::new, |n| n.to_string());
     if let Ok(mut t) = texts.get_mut(ui.damage) {
         if t.text != number {
-            t.text = number;
+            t.text = number.clone();
+        }
+    }
+    if let Ok(mut t) = native_texts.get_mut(ui.damage) {
+        if t.0 != number {
+            t.0 = number;
         }
     }
 }

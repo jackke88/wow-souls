@@ -5,7 +5,7 @@
 use crate::model::*;
 use crate::tsv::{Row, Table};
 use anyhow::{anyhow, Context, Result};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// Every exported table, typed. Quests and items are the newest patch <= 10 row (the export already
@@ -13,6 +13,8 @@ use std::path::Path;
 pub struct Db {
     pub spawns: Vec<Spawn>,
     pub creatures: Vec<Creature>,
+    pub creature_meta: Vec<CreatureMeta>,
+    pub spawn_pools: Vec<SpawnPool>,
     pub quests: Vec<Quest>,
     pub creature_starts: Vec<Relation>,
     pub creature_ends: Vec<Relation>,
@@ -24,7 +26,8 @@ pub struct Db {
     pub loot: Vec<LootRow>,
     pub vendors: Vec<Vendor>,
     pub equipment: Vec<Equipment>,
-    /// `creature_movement`: every path of every creature spawn, in file order.
+    /// GUID paths from `creature_movement`, then entry-template paths expanded for walkers
+    /// without a GUID path. The selected world sorts these by GUID, path and point.
     pub waypoints: Vec<Waypoint>,
     /// `quest_start_scripts` then `quest_end_scripts`, each row with the script `id` it belongs to
     /// (`QuestScript::quest` is 0 here: `select` fills it in from the quests' `StartScript` / `CompleteScript`).
@@ -51,8 +54,12 @@ impl Db {
 
         let spawns = read_spawns(&table("creature")?, &event_creature)
             .with_context(|| in_file("creature"))?;
-        let creatures = read_creatures(&table("creature_template")?)
-            .with_context(|| in_file("creature_template"))?;
+        let creature_template = table("creature_template")?;
+        let creatures =
+            read_creatures(&creature_template).with_context(|| in_file("creature_template"))?;
+        let creature_meta =
+            read_creature_meta(&creature_template).with_context(|| in_file("creature_template"))?;
+        let spawn_pools = crate::pool::load_spawn_pools(dir, &spawns)?;
         let quests = read_quests(&table("quest_template")?, &event_quest)
             .with_context(|| in_file("quest_template"))?;
         let relations = |name: &str, object: bool| -> Result<Vec<Relation>> {
@@ -79,8 +86,21 @@ impl Db {
         let vendors = read_vendors(&table("npc_vendor")?).with_context(|| in_file("npc_vendor"))?;
         let equipment = read_equipment(&table("creature_equip_template")?)
             .with_context(|| in_file("creature_equip_template"))?;
-        let waypoints = read_waypoints(&table("creature_movement")?)
-            .with_context(|| in_file("creature_movement"))?;
+        let template_path = dir.join("creature_movement_template.tsv");
+        let movement_templates = if template_path
+            .try_exists()
+            .with_context(|| format!("checking {}", template_path.display()))?
+        {
+            Some(Table::load(&template_path)?)
+        } else {
+            None
+        };
+        let waypoints = read_waypoints_with_templates(
+            &table("creature_movement")?,
+            movement_templates.as_ref(),
+            &spawns,
+        )
+        .with_context(|| in_file("creature_movement"))?;
         let mut scripts = read_scripts(&table("quest_start_scripts")?, true)
             .with_context(|| in_file("quest_start_scripts"))?;
         scripts.extend(
@@ -98,6 +118,8 @@ impl Db {
         Ok(Db {
             spawns,
             creatures,
+            creature_meta,
+            spawn_pools,
             quests,
             creature_starts,
             creature_ends,
@@ -227,6 +249,25 @@ pub fn read_creatures(t: &Table) -> Result<Vec<Creature>> {
             health_multiplier: r.f32("health_multiplier")?,
             damage_multiplier: r.f32("damage_multiplier")?,
             unit_class: r.u32("unit_class")?,
+        })
+    })
+}
+
+/// Read display probabilities from new exports; older exports keep zero weights.
+/// Faction reactions require the WoW faction DBC and are filled by the importer.
+pub fn read_creature_meta(t: &Table) -> Result<Vec<CreatureMeta>> {
+    each(t, |r| {
+        let mut display_weights = [0; 4];
+        for (i, weight) in display_weights.iter_mut().enumerate() {
+            let column = format!("display_probability{}", i + 1);
+            if t.columns.contains(&column) {
+                *weight = r.u32(&column)?;
+            }
+        }
+        Ok(CreatureMeta {
+            entry: r.u32("entry")?,
+            display_weights,
+            reaction: None,
         })
     })
 }
@@ -542,21 +583,59 @@ pub fn read_vendors(t: &Table) -> Result<Vec<Vendor>> {
 /// `creature_movement`: `id` is the creature spawn's guid, `waittime` is milliseconds. The table's
 /// own `wander_distance` per point is not modelled.
 pub fn read_waypoints(t: &Table) -> Result<Vec<Waypoint>> {
-    each(t, |r| {
-        Ok(Waypoint {
-            guid: r.u32("id")?,
-            point: r.u32("point")?,
-            pos: [
-                r.f32("position_x")?,
-                r.f32("position_y")?,
-                r.f32("position_z")?,
-            ],
-            orientation: r.f32("orientation")?,
-            wait_ms: r.u32("waittime")?,
-            script_id: r.u32("script_id")?,
-            path_id: r.u32("path_id")?,
-        })
+    each(t, |r| read_waypoint(r, r.u32("id")?))
+}
+
+fn read_waypoint(r: &Row, guid: u32) -> Result<Waypoint> {
+    Ok(Waypoint {
+        guid,
+        point: r.u32("point")?,
+        pos: [
+            r.f32("position_x")?,
+            r.f32("position_y")?,
+            r.f32("position_z")?,
+        ],
+        orientation: r.f32("orientation")?,
+        wait_ms: r.u32("waittime")?,
+        script_id: r.u32("script_id")?,
+        path_id: r.u32("path_id")?,
     })
+}
+
+/// GUID paths take precedence over the optional `creature_movement_template` entry paths.
+/// Only movement-type 2 spawns without any GUID path receive their primary entry's template;
+/// alternative creature entries do not change the database's path owner. Point order and
+/// `path_id` are retained, and per-point `wander_distance` is unmodelled as in GUID paths.
+pub fn read_waypoints_with_templates(
+    guid_paths: &Table,
+    templates: Option<&Table>,
+    spawns: &[Spawn],
+) -> Result<Vec<Waypoint>> {
+    let mut waypoints = read_waypoints(guid_paths)?;
+    let Some(templates) = templates else {
+        return Ok(waypoints);
+    };
+    let rows = each(templates, |r| Ok((r.u32("entry")?, read_waypoint(r, 0)?)))
+        .context("creature_movement_template")?;
+    let mut by_entry: HashMap<u32, Vec<Waypoint>> = HashMap::new();
+    for (entry, point) in rows {
+        by_entry.entry(entry).or_default().push(point);
+    }
+    let mut has_path: HashSet<_> = waypoints.iter().map(|point| point.guid).collect();
+    for spawn in spawns {
+        if spawn.movement != 2 || has_path.contains(&spawn.guid) {
+            continue;
+        }
+        let Some(points) = by_entry.get(&spawn.entry) else {
+            continue;
+        };
+        waypoints.extend(points.iter().map(|point| Waypoint {
+            guid: spawn.guid,
+            ..point.clone()
+        }));
+        has_path.insert(spawn.guid);
+    }
+    Ok(waypoints)
 }
 
 pub fn read_equipment(t: &Table) -> Result<Vec<Equipment>> {
@@ -573,6 +652,35 @@ pub fn read_equipment(t: &Table) -> Result<Vec<Equipment>> {
 mod tests {
     use super::*;
     use crate::tsv::Table;
+
+    #[test]
+    fn creature_metadata_preserves_display_weights_without_guessing_reaction() {
+        let table = Table::parse(
+            "entry\tdisplay_probability1\tdisplay_probability2\tdisplay_probability3\tdisplay_probability4\n\
+             38\t10\t25\t0\t65\n\
+             721\t0\t0\t0\t0\n",
+        )
+        .unwrap();
+        let metadata = read_creature_meta(&table).unwrap();
+        assert_eq!(metadata[0].entry, 38);
+        assert_eq!(metadata[0].display_weights, [10, 25, 0, 65]);
+        assert_eq!(metadata[1].display_weights, [0; 4]);
+        assert!(metadata.iter().all(|meta| meta.reaction.is_none()));
+    }
+
+    #[test]
+    fn old_and_partial_exports_keep_missing_display_weights_zero() {
+        for (text, expected) in [
+            ("entry\n38\n", [0; 4]),
+            ("entry\tdisplay_probability2\n38\t40\n", [0, 40, 0, 0]),
+        ] {
+            let metadata = read_creature_meta(&Table::parse(text).unwrap()).unwrap();
+            assert_eq!(metadata[0].display_weights, expected);
+            assert_eq!(metadata[0].reaction, None);
+        }
+        let table = Table::parse("entry\tdisplay_probability1\n38\t-1\n").unwrap();
+        assert!(read_creature_meta(&table).is_err());
+    }
 
     #[test]
     fn spawns_read_every_column_and_flag_events() {
@@ -1050,6 +1158,108 @@ mod tests {
         assert_eq!(
             (v[2].guid, v[2].orientation, v[2].wait_ms),
             (80248, 0.0, 250)
+        );
+    }
+
+    fn path_spawn(guid: u32, entry: u32, movement: u8) -> Spawn {
+        Spawn {
+            guid,
+            entry,
+            alt: [0; 4],
+            pos: [0.0; 3],
+            orientation: 0.0,
+            respawn_min: 300,
+            respawn_max: 300,
+            wander: 0.0,
+            movement,
+            area: 12,
+            event: false,
+        }
+    }
+
+    const PATH_FIELDS: &str = "point\tposition_x\tposition_y\tposition_z\torientation\twaittime\twander_distance\tscript_id\tpath_id";
+
+    fn template_paths() -> Table {
+        Table::parse(&format!(
+            "entry\t{PATH_FIELDS}\n\
+             448\t2\t-9850.5\t-950.25\t36\t1.5\t3000\t0\t7\t9\n\
+             448\t1\t-9840\t-940\t37\t0\t250\t0\t8\t0\n"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn template_waypoints_expand_to_each_walker_guid_and_keep_path_ids() {
+        let empty = Table::parse(&format!("id\t{PATH_FIELDS}\n")).unwrap();
+        let mut unrelated = path_spawn(5, 900, 2);
+        unrelated.alt[0] = 448;
+        let spawns = [
+            path_spawn(80531, 448, 2),
+            path_spawn(80532, 448, 2),
+            path_spawn(3, 448, 0),
+            path_spawn(4, 448, 1),
+            unrelated,
+        ];
+        let paths =
+            read_waypoints_with_templates(&empty, Some(&template_paths()), &spawns).unwrap();
+        assert_eq!(paths.len(), 4);
+        assert_eq!(
+            paths[0],
+            Waypoint {
+                guid: 80531,
+                point: 2,
+                pos: [-9850.5, -950.25, 36.0],
+                orientation: 1.5,
+                wait_ms: 3000,
+                script_id: 7,
+                path_id: 9,
+            }
+        );
+        assert_eq!(
+            (paths[1].point, paths[1].path_id, paths[1].wait_ms),
+            (1, 0, 250)
+        );
+        assert_eq!(
+            paths[2],
+            Waypoint {
+                guid: 80532,
+                ..paths[0].clone()
+            }
+        );
+        assert_eq!(
+            paths[3],
+            Waypoint {
+                guid: 80532,
+                ..paths[1].clone()
+            }
+        );
+    }
+
+    #[test]
+    fn a_guid_path_suppresses_all_entry_template_paths_for_that_spawn() {
+        let direct = Table::parse(&format!(
+            "id\t{PATH_FIELDS}\n80531\t4\t1\t2\t3\t0\t500\t0\t0\t5\n"
+        ))
+        .unwrap();
+        let spawns = [path_spawn(80531, 448, 2), path_spawn(80532, 448, 2)];
+        let paths =
+            read_waypoints_with_templates(&direct, Some(&template_paths()), &spawns).unwrap();
+        assert_eq!(paths.len(), 3);
+        assert_eq!(paths[0], read_waypoints(&direct).unwrap()[0]);
+        assert_eq!(paths.iter().filter(|p| p.guid == 80531).count(), 1);
+        assert!(paths[1..].iter().all(|p| p.guid == 80532));
+    }
+
+    #[test]
+    fn missing_template_exports_keep_guid_paths_and_do_not_invent_paths() {
+        let direct = Table::parse(&format!(
+            "id\t{PATH_FIELDS}\n80531\t4\t1\t2\t3\t0\t500\t0\t0\t5\n"
+        ))
+        .unwrap();
+        let spawns = [path_spawn(80531, 448, 2), path_spawn(80532, 448, 2)];
+        assert_eq!(
+            read_waypoints_with_templates(&direct, None, &spawns).unwrap(),
+            read_waypoints(&direct).unwrap()
         );
     }
 

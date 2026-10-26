@@ -53,6 +53,7 @@ struct Mapped {
     wow_aim: usize,
     check: bool,
     align: bool,
+    rel: bool,
 }
 
 fn resolve(map: &[Pair], ds: &Skeleton, wow: &WowSkel) -> Result<Vec<Mapped>> {
@@ -74,6 +75,7 @@ fn resolve(map: &[Pair], ds: &Skeleton, wow: &WowSkel) -> Result<Vec<Mapped>> {
                 wow_aim: p.wow_aim,
                 check: p.check,
                 align: p.align,
+                rel: p.rel,
             })
         })
         .collect()
@@ -223,18 +225,26 @@ pub fn retarget(
     let bind = model_space(&ds.parents, &ds.reference)?;
     let n = wow.parents.len();
     let parent = |i: usize| usize::try_from(wow.parents[i]).ok().filter(|&p| p < i);
+    // A rig with a pose-relative pair (`Pair::rel`) reads the DS skeleton from the clip's first frame
+    // instead of the bind pose, for the pairs and for the pelvis and hips.
+    let relative = pairs.iter().any(|m| m.rel);
+    let reference = match clip.frames.first() {
+        Some(first) if relative => model_space(&ds.parents, first)?,
+        _ => bind.clone(),
+    };
     // Bind alignment and DS bind rotation per pair.
     let align: Vec<(Quat, Quat)> = pairs
         .iter()
         .map(|m| {
+            let at = if m.rel { &reference } else { &bind };
             let dir_w = (wow.pivots[m.wow_aim] - wow.pivots[m.wow]).normalize();
-            let dir_d = basis.dir(bind[m.ds_aim].0 - bind[m.ds].0).normalize();
+            let dir_d = basis.dir(at[m.ds_aim].0 - at[m.ds].0).normalize();
             let a = if m.align {
                 Quat::from_rotation_arc(dir_w, dir_d)
             } else {
                 Quat::IDENTITY
             };
-            (a, basis.rot(bind[m.ds].1))
+            (a, basis.rot(at[m.ds].1))
         })
         .collect();
     // The angles at bind that the checks measure drift from (0 for an aligned pair: the
@@ -245,9 +255,10 @@ pub fn retarget(
             if m.align {
                 0.0
             } else {
+                let at = if m.rel { &reference } else { &bind };
                 angle_deg(
                     wow.pivots[m.wow_aim] - wow.pivots[m.wow],
-                    basis.dir(bind[m.ds_aim].0 - bind[m.ds].0),
+                    basis.dir(at[m.ds_aim].0 - at[m.ds].0),
                 )
             }
         })
@@ -257,7 +268,7 @@ pub fn retarget(
         .map(|&(a, b, c, d)| {
             angle_deg(
                 wow.pivots[d] - wow.pivots[c],
-                basis.dir(bind[b].0 - bind[a].0),
+                basis.dir(reference[b].0 - reference[a].0),
             )
         })
         .collect();
@@ -305,7 +316,22 @@ pub fn retarget(
     // The hip root turns with the DS pelvis, so the spine base and the waist move as one, and is
     // placed by the hip joints (see `Hips`): their bind midpoint relative to the hip root.
     let hip_arm = (wow.pivots[wow_hips[0]] + wow.pivots[wow_hips[1]]) * 0.5 - wow.pivots[hip_root];
-    let pelvis_bind = basis.rot(bind[ds_pelvis].1);
+    // The DS hips' height in the clip's first frame: the body lifts and drops by what they move from it.
+    let lift_root = hips.body_lift.map(|l| wow_bone(l.root)).transpose()?;
+    let hip_height = |ms: &[(Vec3, Quat)]| basis.pos((ms[ds_hips[0]].0 + ms[ds_hips[1]].0) * 0.5).y;
+    let hip_start = match clip.frames.first() {
+        Some(first) => hip_height(&model_space(&ds.parents, first)?),
+        None => 0.0,
+    };
+    let pelvis_bind = basis.rot(reference[ds_pelvis].1);
+    // Relative, the hip joints' midpoint starts where the WoW model has it at bind and moves by what
+    // the DS hips move from the first frame; else it sits where the DS hips are.
+    let hip_mid_ds = |ms: &[(Vec3, Quat)]| basis.pos((ms[ds_hips[0]].0 + ms[ds_hips[1]].0) * 0.5);
+    let hip_origin = if relative {
+        hip_arm + wow.pivots[hip_root] - hip_mid_ds(&reference)
+    } else {
+        Vec3::ZERO
+    };
     for locals in &clip.frames {
         let ms = model_space(&ds.parents, locals)?;
         let d_pelvis = (basis.rot(ms[ds_pelvis].1) * pelvis_bind.inverse()).normalize();
@@ -321,8 +347,12 @@ pub fn retarget(
             let mut world = vec![Quat::IDENTITY; n];
             let mut pos = vec![Vec3::ZERO; n];
             let mut out = Vec::with_capacity(n);
-            let hip_target =
-                basis.pos((ms[ds_hips[0]].0 + ms[ds_hips[1]].0) * 0.5) + Vec3::Y * lift;
+            // The body follows the hips' rise (a leap shortened to what the model can carry).
+            let rise = hip_height(&ms) - hip_start;
+            let body_lift = hips.body_lift.map_or(0.0, |l| l.shorten(rise));
+            let hip_target = hip_mid_ds(&ms)
+                + hip_origin
+                + Vec3::Y * (lift + body_lift - rise * f32::from(hips.body_lift.is_some()));
             for i in 0..n {
                 let parent_world = parent(i).map_or(Quat::IDENTITY, |p| world[p]);
                 world[i] = match pairs.iter().position(|m| m.wow == i) {
@@ -334,6 +364,10 @@ pub fn retarget(
                     None => parent_world,
                 };
                 let mut t = bind_local_t(i);
+                if lift_root == Some(i) {
+                    // The torso, arms and head hang from here: they rise and fall with the hips.
+                    t.y += body_lift;
+                }
                 if i == hip_root {
                     let parent_pos = parent(i).map_or(Vec3::ZERO, |p| pos[p]);
                     t = parent_world.inverse() * (hip_target - world[i] * hip_arm - parent_pos);
@@ -522,6 +556,7 @@ mod tests {
                 wow_aim: 2,
                 check: false,
                 align: false,
+                rel: false,
             },
             Pair {
                 ds: "L_UpperArm",
@@ -530,6 +565,7 @@ mod tests {
                 wow_aim: 3,
                 check: true,
                 align: true,
+                rel: false,
             },
         ];
         (ds, wow, map)
@@ -542,6 +578,7 @@ mod tests {
                 wow_hip_root: 1,
                 wow_hip_joints: [5, 8],
                 ds_hip_joints: ["L_Thigh", "R_Thigh"],
+                body_lift: None,
             },
             legs: Legs {
                 ds: &[
@@ -570,6 +607,73 @@ mod tests {
             frames,
             up: [0.0, 1.0, 0.0],
         }
+    }
+
+    /// A WoW skeleton like the arm rig plus a spine bone (11) that hangs from the root, not the hips:
+    /// the case of a gnoll, whose torso is fixed to the ground-bound root while the hips follow the DS
+    /// pelvis.
+    fn spine_rig() -> (Skeleton, WowSkel, Vec<Pair>) {
+        let (ds, mut wow, map) = arm_rig();
+        wow.parents.push(0);
+        wow.pivots.push(Vec3::new(0.0, 1.5, 0.0));
+        (ds, wow, map)
+    }
+
+    /// The DS pelvis rises 0.4 in the second frame (a jump). With no lift root the hip root alone
+    /// rises, and a spine bone hanging from the ground-fixed root stays where it was (a belly
+    /// stretched between them); with the root as the lift root the spine rises with the hips and
+    /// the hip root's own offset stays what it was, so the legs reach the same places.
+    #[test]
+    fn a_lift_root_takes_the_body_up_with_the_hips() {
+        let (ds, wow, map) = spine_rig();
+        let mut jump = ds.reference.clone();
+        jump[0].t[1] += 0.4;
+        let clip = clip_of(vec![ds.reference.clone(), jump]);
+        // Positions of bone `b` in the model's frame, frame `f` (translations only: no rotations).
+        let place = |r: &Retargeted, f: usize, b: usize| {
+            let mut y = 0.0;
+            let mut at = Some(b);
+            while let Some(i) = at {
+                y += r.wow.frames[f][i].t[1];
+                at = usize::try_from(wow.parents[i]).ok();
+            }
+            y
+        };
+        let mut rig = test_rig(&map);
+        let plain = retarget(&ds, &clip, &wow, &rig, Vec::new()).unwrap();
+        let rises = |r: &Retargeted, b: usize| place(r, 1, b) - place(r, 0, b);
+        assert!(
+            (rises(&plain, 1) - 0.4).abs() < 1.0e-3,
+            "hips {}",
+            rises(&plain, 1)
+        );
+        assert!(
+            rises(&plain, 11).abs() < 1.0e-3,
+            "spine {}",
+            rises(&plain, 11)
+        );
+
+        rig.hips.body_lift = Some(crate::bonemap::BodyLift {
+            root: 0,
+            full_to: 10.0,
+            beyond: 1.0,
+        });
+        let lifted = retarget(&ds, &clip, &wow, &rig, Vec::new()).unwrap();
+        assert!(
+            (rises(&lifted, 1) - 0.4).abs() < 1.0e-3,
+            "hips {}",
+            rises(&lifted, 1)
+        );
+        assert!(
+            (rises(&lifted, 11) - 0.4).abs() < 1.0e-3,
+            "spine {}",
+            rises(&lifted, 11)
+        );
+        // The legs are where they were: the hip root gave back what the root took.
+        assert!((rises(&lifted, 7) - rises(&plain, 7)).abs() < 1.0e-3);
+        // The hip root's offset from its parent did not change with the jump.
+        let offset = |r: &Retargeted, f: usize| r.wow.frames[f][1].t[1];
+        assert!((offset(&lifted, 1) - offset(&lifted, 0)).abs() < 1.0e-3);
     }
 
     /// DS: the upper arm turns 90° about Z to point down by frame 1. WoW: bound 45° down-left.

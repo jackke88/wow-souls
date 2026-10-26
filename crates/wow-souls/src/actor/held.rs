@@ -53,6 +53,14 @@ impl HeldItem {
             texture: None,
         }
     }
+
+    /// An item in the left hand (a left-hander's weapon).
+    pub fn left_hand(display: u32) -> Self {
+        Self {
+            attach: ATTACH_HAND_LEFT,
+            ..Self::right_hand(display)
+        }
+    }
 }
 
 /// The held item is on: its root (under the hand anchor) and the blade's trail markers in the
@@ -61,6 +69,8 @@ impl HeldItem {
 pub struct HeldBuilt {
     pub root: Entity,
     pub blade: Option<[Vec3; 2]>,
+    /// Measured palms for the Militia Warhammer's two-hand fit. Other models keep their mount.
+    pub maul_palms: Option<[(usize, Vec3); 2]>,
 }
 
 /// The left arm's item: a shield on the forearm, or a weapon in the left hand.
@@ -219,9 +229,26 @@ fn build(
             &mut anim_table,
         );
         let blade = item.string_anchors.map(|[top, bottom]| [top.1, bottom.1]);
-        commands
-            .entity(wearer)
-            .insert((HeldBuilt { root, blade }, HandGrip));
+        let maul_palms = (held.display == 19544 && point.bone == 104)
+            .then(|| {
+                let left = body_model
+                    .attachments
+                    .iter()
+                    .find(|a| a.id == ATTACH_HAND_LEFT && a.bone == 105)?;
+                Some([
+                    (usize::from(point.bone), point.offset),
+                    (usize::from(left.bone), left.offset),
+                ])
+            })
+            .flatten();
+        commands.entity(wearer).insert((
+            HeldBuilt {
+                root,
+                blade,
+                maul_palms,
+            },
+            HandGrip,
+        ));
         info!(
             "held: item display {} in hand {} ({parts} parts, blade markers {})",
             held.display,
@@ -365,6 +392,7 @@ fn build_fist(
         commands.entity(wearer).insert(HeldBuilt {
             root,
             blade: Some([FIST_AXIS * FIST_REACH, Vec3::ZERO]),
+            maul_palms: None,
         });
         info!("held: bare fist on attachment {ATTACH_HAND_RIGHT}");
     }
@@ -450,6 +478,8 @@ pub enum WornKind {
     },
     ShoulderLeft,
     ShoulderRight,
+    /// The torch at the belt ([`crate::torch`]), on the left hip.
+    Belt,
 }
 
 impl WornKind {
@@ -458,6 +488,8 @@ impl WornKind {
             WornKind::Helm { .. } => 11,
             WornKind::ShoulderLeft => 6,
             WornKind::ShoulderRight => 5,
+            // `HipLeft`.
+            WornKind::Belt => 10,
         }
     }
 
@@ -465,6 +497,7 @@ impl WornKind {
         match self {
             WornKind::Helm { .. } => "Item\\ObjectComponents\\Head",
             WornKind::ShoulderLeft | WornKind::ShoulderRight => "Item\\ObjectComponents\\Shoulder",
+            WornKind::Belt => WEAPON_DIR,
         }
     }
 
@@ -582,6 +615,12 @@ fn build_worn(
                     Visibility::default(),
                 ))
                 .id();
+            if kind == WornKind::Belt {
+                commands.entity(root).insert((
+                    BeltTorch,
+                    Transform::from_translation(point.offset).with_rotation(BELT_TURN),
+                ));
+            }
             commands.entity(joint).add_child(root);
             let texture = texture_name
                 .as_deref()
@@ -606,6 +645,14 @@ fn build_worn(
         }
     }
 }
+
+/// The root of the torch hung at the belt ([`WornKind::Belt`]).
+#[derive(Component)]
+pub struct BeltTorch;
+
+/// How the belt torch hangs from the hip attachment: the model's shaft (+X) turned to point down and a
+/// little back, the flame below the hand's reach.
+pub const BELT_TURN: Quat = Quat::IDENTITY;
 
 /// The right hand is closed around a held item.
 #[derive(Component)]

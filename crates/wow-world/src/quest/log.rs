@@ -115,6 +115,11 @@ pub struct QuestLog {
 
 /// Are all objectives of `q` met by `e`?
 fn objectives_met(q: &Quest, e: &Entry) -> bool {
+    // vMaNGOS requires separate exploration/event credit; empty counters cannot grant it.
+    // Imported scripted objectives await world hooks; spell objectives are not kill credit.
+    if q.special_flags & 2 != 0 || q.req_spell_cast.iter().any(|id| *id != 0) {
+        return false;
+    }
     q.req_kills
         .iter()
         .enumerate()
@@ -404,6 +409,18 @@ impl QuestLog {
 mod tests {
     use super::*;
     use crate::quest::testing::real_world;
+
+    #[test]
+    fn imported_event_and_spell_objectives_cannot_complete_from_empty_counters() {
+        let mut q = crate::quest::testing::quest(999);
+        let entry = Entry::new(Status::Incomplete);
+        assert!(objectives_met(&q, &entry));
+        q.special_flags = 2;
+        assert!(!objectives_met(&q, &entry));
+        q.special_flags = 0;
+        q.req_spell_cast = vec![123];
+        assert!(!objectives_met(&q, &entry));
+    }
 
     fn nothing(_: u32) -> u32 {
         0

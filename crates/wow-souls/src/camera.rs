@@ -30,7 +30,7 @@ use crate::settle::Phase;
 
 /// WoW yards per Dark Souls metre at the body's scale: the retarget's, so the camera frames our
 /// 2.03 yd human as Dark Souls frames its 1.8 m one.
-pub const DS_METRE: f32 = 1.135;
+pub const METRES_TO_YARDS: f32 = 1.135;
 /// Vertical field of view (rad): DSR's 43 degrees (`LockCamParam` `camFovY`, 41.5-48 in every row).
 pub const FOV_Y: f32 = 43.0 * std::f32::consts::PI / 180.0;
 
@@ -50,8 +50,8 @@ pub struct Rig {
 /// A `LockCamParam` row: metres and degrees in, yards and radians out.
 const fn row(distance_m: f32, pivot_m: f32, rot_min_deg: f32, shift_ratio: f32) -> Rig {
     Rig {
-        distance: distance_m * DS_METRE,
-        pivot_height: pivot_m * DS_METRE,
+        distance: distance_m * METRES_TO_YARDS,
+        pivot_height: pivot_m * METRES_TO_YARDS,
         pitch_min: rot_min_deg * std::f32::consts::PI / 180.0,
         shift_ratio,
     }
@@ -84,7 +84,7 @@ const RIG_RATE: f32 = 3.0;
 /// The rig for a locked target `height` yd tall: the ladder, interpolated, held at its ends, and
 /// never closer or lower than the free rig: a big target pushes the camera out, nothing pulls it in.
 pub fn lock_rig(height: f32) -> Rig {
-    let h = height / DS_METRE;
+    let h = height / METRES_TO_YARDS;
     let [first, .., last] = LADDER;
     let rig = if h <= first.0 {
         first.1
@@ -158,7 +158,7 @@ pub const PITCH_MAX: f32 = 0.52;
 /// The pitch the camera opens at: a little above the shoulders.
 const PITCH_OPEN: f32 = -0.25;
 /// Radians per pixel of mouse motion.
-const MOUSE_SENSITIVITY: f32 = 0.0025;
+pub(crate) const MOUSE_SENSITIVITY: f32 = 0.0025;
 /// Right-stick orbit speed at full deflection (rad/s).
 const STICK_RATE: f32 = 3.0;
 /// How fast the boom grows back after geometry stops cutting it (1/s), benilla's
@@ -178,6 +178,58 @@ const RECENTER_DONE: f32 = 0.005;
 const RECENTER_CANCEL: f32 = 0.002;
 /// How fast a locked camera swings to hold its target (1/s).
 const LOCK_TRACK_RATE: f32 = 10.0;
+/// Bound large target changes instead of allowing the exponential's first step to whip the boom.
+const LOCK_YAW_SPEED: f32 = std::f32::consts::PI;
+const LOCK_PITCH_SPEED: f32 = std::f32::consts::FRAC_PI_2;
+const LOCK_VIEW_SPEED: f32 = 240.0_f32.to_radians();
+const LOCK_AIM_RATE: f32 = 12.0;
+
+/// Follow a target around the pivot without snapping the focus point across the screen.
+pub fn follow_lock_aim(pivot: Vec3, current: Vec3, wanted: Vec3, dt: f32) -> Vec3 {
+    let dt = dt.clamp(0.0, 0.1);
+    if dt == 0.0 {
+        return current;
+    }
+    let (from, to) = (current - pivot, wanted - pivot);
+    let (a, b) = (from.length(), to.length());
+    if a < 1.0e-3 || b < 1.0e-3 {
+        return current.lerp(wanted, 1.0 - (-LOCK_AIM_RATE * dt).exp());
+    }
+    let (from, to) = (from / a, to / b);
+    let angle = from.angle_between(to);
+    let k = 1.0 - (-LOCK_AIM_RATE * dt).exp();
+    // Rotation-arc construction rounds tiny angles to identity; finish positionally so the
+    // focus does not stop a few millimetres short of a stationary target.
+    if angle < 0.005 {
+        return current.lerp(wanted, k);
+    }
+    let turn = k.min(LOCK_VIEW_SPEED * dt / angle);
+    let direction = Quat::IDENTITY.slerp(Quat::from_rotation_arc(from, to), turn) * from;
+    pivot + direction * (a + (b - a) * k)
+}
+
+/// Exponential following with a physical angular-speed bound; yaw takes the shortest arc.
+pub fn lock_turn(current: f32, wanted: f32, speed: f32, dt: f32) -> f32 {
+    let dt = dt.clamp(0.0, 0.1);
+    let eased = crate::lockon::track(current, wanted, LOCK_TRACK_RATE, dt);
+    wrap_pi(turn_toward(current, eased, speed * dt))
+}
+
+/// The final view also stays continuous near/under a target, where look-at geometry is sensitive.
+/// Free orbit is direct. Call with the unshaken previous pose to avoid accumulating hit shake.
+pub fn stable_lock_view(current: Quat, wanted: Quat, tracking: bool, dt: f32) -> Quat {
+    if !tracking {
+        return wanted;
+    }
+    let angle = current.angle_between(wanted);
+    if angle < 1.0e-5 {
+        return wanted;
+    }
+    current.slerp(
+        wanted,
+        (LOCK_VIEW_SPEED * dt.clamp(0.0, 0.1) / angle).min(1.0),
+    )
+}
 
 /// Which camera drives the view.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,6 +250,8 @@ pub struct OrbitCam {
     pub look: Vec3,
     /// How far the view aims from the pivot toward `look`: 0 free, the rig's ratio locked, eased.
     pub focus: f32,
+    /// Last unshaken view orientation; shake never feeds back into camera following.
+    pub view: Quat,
     /// The smoothed pivot (Bevy space).
     pub pivot: Vec3,
     /// The boom length geometry allows, eased (yd from the head).
@@ -263,6 +317,7 @@ fn attach_orbit(
         rig: FREE_RIG,
         look: body.translation,
         focus: 0.0,
+        view: Quat::from_euler(EulerRot::YXZ, yaw, PITCH_OPEN, 0.0),
         pivot: body.translation + Vec3::Y * PIVOT_HEIGHT,
         open: DISTANCE,
         recenter: None,
@@ -371,7 +426,11 @@ fn orbit_input(
     // The view aims part of the way to the locked target (the rig's shift ratio), and back.
     let locked = crate::lockon::locked_aim(&lock, &targets);
     if let Some(aim) = locked {
-        cam.look = aim;
+        cam.look = if cam.focus <= 1.0e-3 {
+            aim
+        } else {
+            follow_lock_aim(cam.pivot, cam.look, aim, dt)
+        };
     }
     cam.focus = ease_focus(cam.focus, locked.map(|_| cam.rig.shift_ratio), dt);
     let captured = window
@@ -397,10 +456,10 @@ fn orbit_input(
         d.x -= spin.0 * dt;
     }
     // Locked, the target owns the view: the orbit swings to hold it, and look input is ignored.
-    if let Some(aim) = crate::lockon::locked_aim(&lock, &targets) {
-        let (yaw, pitch) = crate::lockon::lock_angles(cam.pivot, aim, &cam.rig);
-        cam.yaw = crate::lockon::track(cam.yaw, yaw, LOCK_TRACK_RATE, dt);
-        cam.pitch += (pitch - cam.pitch) * (1.0 - (-LOCK_TRACK_RATE * dt).exp());
+    if locked.is_some() {
+        let (yaw, pitch) = crate::lockon::lock_angles(cam.pivot, cam.look, &cam.rig);
+        cam.yaw = lock_turn(cam.yaw, yaw, LOCK_YAW_SPEED, dt);
+        cam.pitch = lock_turn(cam.pitch, pitch, LOCK_PITCH_SPEED, dt);
         cam.recenter = None;
         return;
     }
@@ -425,6 +484,7 @@ fn orbit_input(
 fn seat(
     time: Res<Time>,
     collide: WorldCollision,
+    lock: Res<crate::lockon::LockOn>,
     avatar: Query<&Transform, (With<Avatar>, Without<OrbitCam>)>,
     mut cam: Query<(&mut Transform, &mut OrbitCam, &mut Projection)>,
     mut fade: ResMut<BodyFade>,
@@ -442,6 +502,7 @@ fn seat(
     }
     let dt = time.delta_secs();
     let wanted_pivot = body.translation + Vec3::Y * orbit.rig.pivot_height;
+    let snapped = orbit.pivot.distance(wanted_pivot) > FOLLOW_SNAP;
     orbit.pivot = follow_pivot(orbit.pivot, wanted_pivot, dt);
 
     let rotation = Quat::from_euler(EulerRot::YXZ, orbit.yaw, orbit.pitch, 0.0);
@@ -475,11 +536,14 @@ fn seat(
             Color::srgb(0.2, 1.0, 1.0),
         );
         let eye = body.translation + obs.offset;
-        *xf = Transform::from_translation(eye).looking_at(body.translation, Vec3::Y);
+        *xf = Transform::from_translation(eye)
+            .looking_at(body.translation + Vec3::Y * obs.target_height, Vec3::Y);
     } else {
         // A blow's jolt on top of the seat, from the same base pose each frame (nothing builds up).
         let (shift, tilt) = shake.offset();
-        let view = view_rotation(seated, orbit.pivot, orbit.look, orbit.focus, rotation);
+        let wanted = view_rotation(seated, orbit.pivot, orbit.look, orbit.focus, rotation);
+        let view = stable_lock_view(orbit.view, wanted, lock.target.is_some() && !snapped, dt);
+        orbit.view = view;
         xf.rotation = view * tilt;
         xf.translation = seated + view * shift;
     }
@@ -537,6 +601,8 @@ pub fn recenter_step(yaw: f32, target: f32, dt: f32) -> (f32, bool) {
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct Observe {
     pub offset: Vec3,
+    /// Architectural inspection can frame a roof without moving the grounded avatar.
+    pub target_height: f32,
 }
 
 /// `WOWSOULS_SPIN=<rad/s>`: orbit the camera at a constant rate. An unattended-run instrument.
@@ -578,11 +644,21 @@ pub fn instruments(app: &mut App) {
         let offset = crate::slice::parse_wow_point(&v, 0.0)
             .map(Vec3::from_array)
             .unwrap_or(Vec3::new(0.0, 18.0, 10.0));
-        app.insert_resource(Observe { offset })
-            // The rig's gizmos draw through the world.
-            .add_systems(Startup, |mut store: ResMut<GizmoConfigStore>| {
-                store.config_mut::<DefaultGizmoConfigGroup>().0.depth_bias = -1.0;
-            });
+        let target_height = std::env::var("WOWSOULS_OBSERVE_HEIGHT")
+            .ok()
+            .and_then(|v| v.trim().parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+            .unwrap_or(0.0);
+        app.insert_resource(Observe {
+            offset,
+            target_height,
+        })
+        // The rig's gizmos draw through the world.
+        .add_systems(Startup, |mut store: ResMut<GizmoConfigStore>| {
+            store.config_mut::<DefaultGizmoConfigGroup>().0.depth_bias = -1.0;
+            store.config_mut::<DefaultGizmoConfigGroup>().0.enabled =
+                std::env::var_os("WOWSOULS_OBSERVE_CLEAN").is_none();
+        });
     }
     if let Some(rate) = std::env::var("WOWSOULS_SPIN")
         .ok()
@@ -596,6 +672,62 @@ pub fn instruments(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn locked_switches_have_bounded_motion_and_settle_at_all_frame_rates() {
+        let pivot = Vec3::Y * PIVOT_HEIGHT;
+        let a = Vec3::new(-6.0, 0.8, -7.0);
+        let b = Vec3::new(6.0, 0.8, -7.0);
+        for fps in [30, 60, 144] {
+            let dt = 1.0 / fps as f32;
+            let (mut yaw, mut pitch) = crate::lockon::lock_angles(pivot, a, &FREE_RIG);
+            let mut look = a;
+            let boom = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
+            let mut view = view_rotation(boom_seat(pivot, boom, DISTANCE), pivot, look, 0.6, boom);
+            for _ in 0..fps * 2 {
+                look = follow_lock_aim(pivot, look, b, dt);
+                let (want_yaw, want_pitch) = crate::lockon::lock_angles(pivot, look, &FREE_RIG);
+                let (before_yaw, before_pitch) = (yaw, pitch);
+                yaw = lock_turn(yaw, want_yaw, LOCK_YAW_SPEED, dt);
+                pitch = lock_turn(pitch, want_pitch, LOCK_PITCH_SPEED, dt);
+                assert!(wrap_pi(yaw - before_yaw).abs() <= LOCK_YAW_SPEED * dt + 1.0e-5);
+                assert!((pitch - before_pitch).abs() <= LOCK_PITCH_SPEED * dt + 1.0e-5);
+                let boom = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
+                let wanted =
+                    view_rotation(boom_seat(pivot, boom, DISTANCE), pivot, look, 0.6, boom);
+                let next = stable_lock_view(view, wanted, true, dt);
+                assert!(
+                    view.angle_between(next) <= LOCK_VIEW_SPEED * dt + 1.0e-4,
+                    "{fps}"
+                );
+                view = next;
+            }
+            assert!(look.distance(b) < 0.001, "{fps}: {look:?}");
+            let (want_yaw, _) = crate::lockon::lock_angles(pivot, b, &FREE_RIG);
+            assert!(wrap_pi(want_yaw - yaw).abs() < 0.005, "{fps}: {yaw}");
+        }
+    }
+
+    #[test]
+    fn near_target_crossings_and_yaw_wrap_do_not_snap_or_feed_back_shake() {
+        let dt = 1.0 / 60.0;
+        let mut base = Quat::from_rotation_y(3.1);
+        for wanted in [
+            Quat::from_rotation_y(-3.1),
+            Quat::from_rotation_x(-1.2),
+            Quat::from_rotation_y(1.5),
+        ] {
+            let next = stable_lock_view(base, wanted, true, dt);
+            assert!(base.angle_between(next) <= LOCK_VIEW_SPEED * dt + 1.0e-4);
+            base = next;
+        }
+        assert!(wrap_pi(lock_turn(3.0, -3.0, LOCK_YAW_SPEED, dt) - 3.0) > 0.0);
+        assert_eq!(
+            stable_lock_view(base, Quat::IDENTITY, false, dt),
+            Quat::IDENTITY
+        );
+        assert_eq!(stable_lock_view(base, Quat::IDENTITY, true, 0.0), base);
+    }
 
     #[test]
     fn a_level_camera_sits_straight_behind_the_pivot() {
@@ -711,8 +843,8 @@ mod tests {
     #[test]
     fn the_free_rig_is_dark_souls_default_row() {
         // `LockCamParam` row 0 (DSR's GameParam): 4.0 m back, 1.42 m up, 43 degrees.
-        assert!((DISTANCE - 4.0 * DS_METRE).abs() < 1.0e-4);
-        assert!((PIVOT_HEIGHT - 1.42 * DS_METRE).abs() < 1.0e-4);
+        assert!((DISTANCE - 4.0 * METRES_TO_YARDS).abs() < 1.0e-4);
+        assert!((PIVOT_HEIGHT - 1.42 * METRES_TO_YARDS).abs() < 1.0e-4);
         assert!((FOV_Y.to_degrees() - 43.0).abs() < 1.0e-3);
         assert_eq!(FREE_RIG.distance, DISTANCE);
         assert_eq!(FREE_RIG.pivot_height, PIVOT_HEIGHT);
@@ -739,7 +871,7 @@ mod tests {
         // A giant and a dragon: rows 103 and 104, 5.0 m and 6.0 m, held beyond the end.
         let big = [d(2.03), d(4.0), d(7.0)];
         assert!(big.windows(2).all(|w| w[0] < w[1]), "{big:?}");
-        assert!((d(100.0) - 6.0 * DS_METRE).abs() < 1.0e-4);
+        assert!((d(100.0) - 6.0 * METRES_TO_YARDS).abs() < 1.0e-4);
     }
 
     #[test]

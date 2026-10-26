@@ -16,7 +16,7 @@ use anyhow::{bail, ensure, Result};
 use crate::model::Item;
 
 /// Equipment slots counting the ammo slot.
-pub const SLOT_COUNT: usize = 20;
+pub const SLOT_COUNT: usize = 21;
 
 /// One place on the paper doll. The discriminant is the server's equipment slot number (ammo, which
 /// the server keeps outside the numbered slots, takes the next free one).
@@ -43,6 +43,8 @@ pub enum Slot {
     Ranged,
     Tabard,
     Ammo,
+    /// The torch at the belt (2026-10-18, ours, not WoW's: the user wants one for the dark nights).
+    Torch,
 }
 
 impl Slot {
@@ -68,6 +70,7 @@ impl Slot {
         Slot::Ranged,
         Slot::Tabard,
         Slot::Ammo,
+        Slot::Torch,
     ];
 
     /// The server's slot number (0 head ... 18 tabard, 19 ammo here).
@@ -100,6 +103,7 @@ impl Slot {
             Slot::Ranged => "Ranged",
             Slot::Tabard => "Tabard",
             Slot::Ammo => "Ammo",
+            Slot::Torch => "Torch",
         }
     }
 
@@ -126,6 +130,7 @@ impl Slot {
             Slot::Ranged => "ranged",
             Slot::Tabard => "tabard",
             Slot::Ammo => "ammo",
+            Slot::Torch => "torch",
         }
     }
 
@@ -158,6 +163,8 @@ pub const RIGHT_COLUMN: [Slot; 8] = [
 ];
 /// The row under the doll.
 pub const WEAPON_ROW: [Slot; 4] = [Slot::MainHand, Slot::OffHand, Slot::Ranged, Slot::Ammo];
+/// Under the weapons: the belt torch (ours).
+pub const BELT_ROW: [Slot; 1] = [Slot::Torch];
 
 /// `item_template.inventory_type`.
 pub mod inv {
@@ -193,6 +200,8 @@ pub mod inv {
     /// A gun, crossbow or wand.
     pub const RANGED_RIGHT: u32 = 26;
     pub const QUIVER: u32 = 27;
+    /// Ours, past WoW's types: a torch for the belt ([`super::Slot::Torch`]).
+    pub const TORCH: u32 = 900;
 }
 
 /// The slots an item of this `inventory_type` can go in, in the order a quick equip tries them
@@ -218,6 +227,7 @@ pub fn slots_for(inventory_type: u32) -> &'static [Slot] {
         inv::TWO_HAND | inv::MAIN_HAND => &[Slot::MainHand],
         inv::TABARD => &[Slot::Tabard],
         inv::AMMO => &[Slot::Ammo],
+        inv::TORCH => &[Slot::Torch],
         _ => &[],
     }
 }
@@ -245,6 +255,7 @@ pub struct Wearer {
 
 pub const RACE_HUMAN: u8 = 1;
 pub const CLASS_WARRIOR: u8 = 1;
+pub const CLASS_MAGE: u8 = 8;
 /// The level a warrior can plate himself (the Plate Mail proficiency).
 pub const WARRIOR_PLATE_LEVEL: u32 = 40;
 /// The level a warrior learns Dual Wield, and so can put a one-handed weapon in the off hand.
@@ -504,13 +515,36 @@ pub const HUMAN_WARRIOR_KIT: [(Slot, u32); 5] = [
     (Slot::Feet, 40),      // Recruit's Boots
 ];
 
+/// What a new human mage wears: vMaNGOS `playercreateinfo_item` for race 1, class 8, the pieces that go
+/// on a slot (two Refreshing Spring Water, four Darnassian Bleu and the hearthstone go in a bag).
+pub const HUMAN_MAGE_KIT: [(Slot, u32); 5] = [
+    (Slot::MainHand, 35), // Bent Staff, two-handed staff 3-5, 2.9 s
+    (Slot::Shirt, 6096),  // Apprentice's Shirt
+    (Slot::Chest, 56),    // Apprentice's Robe
+    (Slot::Legs, 1395),   // Apprentice's Pants
+    (Slot::Feet, 55),     // Apprentice's Boots
+];
+
+/// What a level 11 trial character wears (`wow-souls --trial-character`, the Hogger fight's intended
+/// level): real 1.12 items, all green, required level 9-12, picked from `item_template`. Part of the
+/// item selection like the starting kit, so a save that names them finds their rows.
+pub const TRIAL_GEAR: [(Slot, u32); 8] = [
+    (Slot::MainHand, 1219), // Redridge Machete, sword 13-25, 2.3 s
+    (Slot::OffHand, 6560),  // Soldier's Shield, 361 armor, block 6
+    (Slot::Chest, 2977),    // Veteran Armor, 151
+    (Slot::Legs, 6546),     // Soldier's Leggings, 139
+    (Slot::Feet, 6551),     // Soldier's Boots, 109
+    (Slot::Hands, 6547),    // Soldier's Gauntlets, 99
+    (Slot::Wrists, 9785),   // Raider's Bracers, 69
+    (Slot::Waist, 6548),    // Soldier's Girdle, 85
+];
+
 /// The kit a new character of this race and class starts in; empty for the ones the game cannot make.
 pub fn start_kit(race: u8, class: u8) -> &'static [(Slot, u32)] {
-    if race == RACE_HUMAN && class == CLASS_WARRIOR {
-        &HUMAN_WARRIOR_KIT
-    } else {
-        &[]
+    if race != RACE_HUMAN {
+        return &[][..];
     }
+    crate::class::def(class).map_or(&[][..], |c| c.kit)
 }
 
 /// The text of the worn items: `kit 1` once the starting kit was given, then one `equip <slot> <item>`
@@ -584,8 +618,8 @@ pub(crate) mod tests {
     };
 
     #[test]
-    fn there_are_the_nineteen_server_slots_and_the_ammo_slot() {
-        assert_eq!(Slot::ALL.len(), 20);
+    fn there_are_nineteen_server_slots_ammo_and_the_belt_torch() {
+        assert_eq!(Slot::ALL.len(), 21);
         for (i, slot) in Slot::ALL.into_iter().enumerate() {
             assert_eq!(slot.index(), i);
             assert_eq!(Slot::from_index(i), Some(slot));
@@ -599,13 +633,16 @@ pub(crate) mod tests {
         assert_eq!(Slot::MainHand.index(), 15);
         assert_eq!(Slot::Ranged.index(), 17);
         assert_eq!(Slot::Tabard.index(), 18);
-        assert_eq!(Slot::from_index(20), None);
+        assert_eq!(Slot::Ammo.index(), 19);
+        assert_eq!(Slot::Torch.index(), 20);
+        assert_eq!(Slot::from_index(21), None);
     }
 
     #[test]
     fn the_pane_lays_every_slot_out_once() {
         let mut seen: Vec<Slot> = LEFT_COLUMN.into_iter().chain(RIGHT_COLUMN).collect();
         seen.extend(WEAPON_ROW);
+        seen.extend(BELT_ROW);
         seen.sort();
         assert_eq!(seen, Slot::ALL.to_vec());
     }
@@ -796,7 +833,15 @@ pub(crate) mod tests {
         assert_eq!(kit.len(), 5);
         assert!(kit.contains(&(Slot::MainHand, 25)));
         assert!(start_kit(2, CLASS_WARRIOR).is_empty());
-        assert!(start_kit(RACE_HUMAN, 8).is_empty());
+        assert_eq!(
+            start_kit(RACE_HUMAN, CLASS_MAGE).len(),
+            5,
+            "the mage has a kit"
+        );
+        assert!(
+            start_kit(RACE_HUMAN, 5).is_empty(),
+            "the priest has none yet"
+        );
     }
 
     #[test]

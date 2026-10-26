@@ -8,11 +8,40 @@ use crate::species::SpeciesDef;
 pub const ANCHOR: [f32; 3] = [-8913.0, -136.0, 82.0];
 
 /// `WOWSOULS_AT=<x>,<y>[,<z>]` moves the anchor (raw WoW coords; `z` defaults to the anchor's).
+/// Without it a character with a start of its own ([`crate::saves::start`]) starts there.
 pub fn anchor() -> [f32; 3] {
     std::env::var("WOWSOULS_AT")
         .ok()
         .and_then(|v| parse_wow_point(&v, ANCHOR[2]))
+        .or_else(|| crate::saves::start().map(|s| s.at))
         .unwrap_or(ANCHOR)
+}
+
+/// The yaw (radians, Bevy's: 0 faces north) the body starts with: toward the start's `face` point;
+/// north otherwise, and with `WOWSOULS_AT` (which has no facing).
+pub fn start_yaw() -> f32 {
+    if std::env::var_os("WOWSOULS_AT").is_some() {
+        return 0.0;
+    }
+    match crate::saves::start() {
+        Some(crate::saves::Start {
+            at,
+            face: Some([x, y]),
+        }) => yaw_toward(at, [x, y]),
+        _ => 0.0,
+    }
+}
+
+/// The yaw that turns a body at `from` (WoW coordinates) to face the ground point `to`.
+pub fn yaw_toward(from: [f32; 3], to: [f32; 2]) -> f32 {
+    // Bevy: forward is -Z (WoW north), left is -X (WoW west is +Y), so `(-dx_bevy).atan2(-dz_bevy)`
+    // with bevy x = -wow y, bevy z = -wow x.
+    let (north, west) = (to[0] - from[0], to[1] - from[1]);
+    let (dx, dz) = (-west, -north);
+    if dx.abs() + dz.abs() < 1.0e-4 {
+        return 0.0;
+    }
+    (-dx).atan2(-dz)
 }
 
 /// A group of creatures of one species: where the first stands, where the others stand from it
@@ -60,8 +89,14 @@ pub const EXTRA_YOUNG_WOLVES: [[f32; 2]; 1] = [[-5.0, 8.0]];
 /// to be checked by picture.
 pub const GARRICK_AT: [f32; 3] = [-8856.0, -64.0, 82.0];
 
+/// Hogger, for a fight in the valley (his real place is the world manifest's): west-south-west of
+/// the anchor, 20 yd or more from every other group (`the_groups_stand_clear_of_each_other` holds
+/// that), a candidate spot to be checked by picture. Off unless `WOWSOULS_HOGGERS` or
+/// `WOWSOULS_HOGGER_AT` is set (the group is not part of the default slice).
+pub const HOGGER_AT: [f32; 3] = [-8930.0, -112.0, 82.0];
+
 /// Every group the slice has.
-pub const GROUPS: [Group; 7] = [
+pub const GROUPS: [Group; 8] = [
     Group {
         species: &crate::species::KOBOLD,
         first: KOBOLD_AT,
@@ -118,7 +153,20 @@ pub const GROUPS: [Group; 7] = [
         count_var: "WOWSOULS_GARRICKS",
         scripted: 0,
     },
+    Group {
+        species: &crate::species::HOGGER,
+        first: HOGGER_AT,
+        extra: &[],
+        at_var: "WOWSOULS_HOGGER_AT",
+        count_var: "WOWSOULS_HOGGERS",
+        scripted: 0,
+    },
 ];
+
+/// The boss group is not part of the default slice: it stands only when asked for.
+pub fn stays_off(species: &str, asked: bool) -> bool {
+    species == "hogger" && !asked
+}
 
 /// How many of a group of `all` stand, from the count variable `var`, whether the run is
 /// unattended (`scripted` stand) and whether it moved the first (one stands); a person playing
@@ -141,6 +189,10 @@ pub fn count_for(
 /// The feet of a group in WoW coords: the first at its `_AT` variable or [`Group::first`], the
 /// rest at [`Group::extra`] from it.
 pub fn group_spots(g: &Group) -> Vec<[f32; 3]> {
+    let asked = std::env::var_os(g.count_var).is_some() || std::env::var_os(g.at_var).is_some();
+    if stays_off(g.species.name, asked) {
+        return Vec::new();
+    }
     let first = std::env::var(g.at_var)
         .ok()
         .and_then(|v| parse_wow_point(&v, g.first[2]))
@@ -184,6 +236,19 @@ pub fn parse_wow_point(v: &str, default_z: f32) -> Option<[f32; 3]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_start_faces_the_point_it_names() {
+        let here = [-9900.0, 500.0, 40.0];
+        let yaw_of = |to: [f32; 2]| yaw_toward(here, to);
+        // North is 0 (Bevy -Z), west a quarter turn to the left, south a half, east to the right.
+        assert!(yaw_of([-9890.0, 500.0]).abs() < 1.0e-5);
+        assert!((yaw_of([-9900.0, 510.0]) - std::f32::consts::FRAC_PI_2).abs() < 1.0e-5);
+        assert!((yaw_of([-9910.0, 500.0]).abs() - std::f32::consts::PI).abs() < 1.0e-5);
+        assert!((yaw_of([-9900.0, 490.0]) + std::f32::consts::FRAC_PI_2).abs() < 1.0e-5);
+        // Facing where it stands is no turn.
+        assert_eq!(yaw_of([here[0], here[1]]), 0.0);
+    }
 
     fn kobolds(var: Option<&str>, unattended: bool, moved: bool) -> usize {
         count_for(var, unattended, moved, 1 + EXTRA_KOBOLDS.len(), 1)
@@ -232,6 +297,15 @@ mod tests {
         assert_eq!(wolves(None, true, true), 1, "a placed wolf stands");
         assert_eq!(wolves(Some("5"), true, false), 2);
         assert_eq!(wolves(Some("0"), false, false), 0);
+    }
+
+    #[test]
+    fn the_hogger_group_is_off_unless_asked() {
+        assert!(stays_off("hogger", false));
+        assert!(!stays_off("hogger", true));
+        // Every other group stands as before.
+        assert!(!stays_off("kobold", false));
+        assert!(!stays_off("garrick", false));
     }
 
     #[test]

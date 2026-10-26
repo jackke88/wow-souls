@@ -229,7 +229,7 @@ fn apply(
     owned: Res<Owned>,
     data: Res<Data>,
     wear: Res<WearOverride>,
-    moves: Option<Res<crate::dsclip::DsMoves>>,
+    moves: Option<Res<crate::motion_clip::WeaponClips>>,
     catalogs: Option<Res<Catalogs>>,
     fresh: Query<(), (With<Avatar>, Added<Appearance>)>,
     avatar: Query<
@@ -330,6 +330,14 @@ pub enum Dir {
 
 /// Where the cursor goes from `slot`: the two columns, then the weapon row under them.
 pub fn neighbor(slot: Slot, dir: Dir) -> Slot {
+    // The belt torch sits under the weapon row.
+    if slot == Slot::Torch {
+        return if matches!(dir, Dir::Up) {
+            equipment::WEAPON_ROW[0]
+        } else {
+            slot
+        };
+    }
     let left = equipment::LEFT_COLUMN.iter().position(|&s| s == slot);
     let right = equipment::RIGHT_COLUMN.iter().position(|&s| s == slot);
     let row = equipment::WEAPON_ROW.iter().position(|&s| s == slot);
@@ -350,6 +358,7 @@ pub fn neighbor(slot: Slot, dir: Dir) -> Slot {
                 equipment::RIGHT_COLUMN[last]
             }
         }
+        (_, _, Some(_), Dir::Down) => Slot::Torch,
         (_, _, Some(j), Dir::Left) => equipment::WEAPON_ROW[j.saturating_sub(1)],
         (_, _, Some(j), Dir::Right) => {
             equipment::WEAPON_ROW[(j + 1).min(equipment::WEAPON_ROW.len() - 1)]
@@ -934,6 +943,42 @@ pub fn card(items: &[Item], gear: &Gear, wearer: Wearer, entry: u32) -> Option<C
     let slot = gear
         .best_slot(items, item, wearer)
         .or_else(|| slots.first().copied());
+    Some(card_in(items, gear, wearer, item, slot))
+}
+
+/// The card of item `entry` held against what `slot` holds: the equipment page's list, where the
+/// player already chose the slot (the second ring, the off hand).
+pub fn card_at(
+    items: &[Item],
+    gear: &Gear,
+    wearer: Wearer,
+    entry: u32,
+    slot: Slot,
+) -> Option<Card> {
+    let item = find(items, entry)?;
+    Some(card_in(items, gear, wearer, item, Some(slot)))
+}
+
+/// A comparison row in a few words for a list's right edge: "48 Armor (+31)" -> "+31 Armor",
+/// "3.0 damage per second (+1.9)" -> "+1.9 DPS". `None` for a row with no number (a two-hander's
+/// note).
+pub fn short_delta(line: &CompareLine) -> Option<String> {
+    let (head, tail) = line.text.rsplit_once(" (")?;
+    let delta = tail.strip_suffix(')')?;
+    let word = head.split_once(' ')?.1;
+    let word = match word {
+        "damage per second" => "DPS",
+        "Strength" => "Str",
+        "Agility" => "Agi",
+        "Stamina" => "Sta",
+        "Intellect" => "Int",
+        "Spirit" => "Spi",
+        other => other,
+    };
+    Some(format!("{delta} {word}"))
+}
+
+fn card_in(items: &[Item], gear: &Gear, wearer: Wearer, item: &Item, slot: Option<Slot>) -> Card {
     let warning = slot
         .and_then(|s| gear.plan(items, item, s, wearer).err())
         .map(Refusal::message);
@@ -946,7 +991,7 @@ pub fn card(items: &[Item], gear: &Gear, wearer: Wearer, entry: u32) -> Option<C
         (Some(s), None) => format!("Your {} slot is empty", s.name()),
         (None, _) => String::new(),
     };
-    Some(Card {
+    Card {
         name: item.name.clone(),
         quality: item.quality,
         tooltip: tooltip(item),
@@ -962,7 +1007,7 @@ pub fn card(items: &[Item], gear: &Gear, wearer: Wearer, entry: u32) -> Option<C
             quality: w.quality,
             tooltip: tooltip(w),
         }),
-    })
+    }
 }
 
 #[cfg(test)]
@@ -1006,6 +1051,27 @@ mod tests {
         let c = card(&items, &Gear::default(), who, 25).unwrap();
         assert_eq!(c.versus, "Your Main Hand slot is empty");
         assert_eq!(c.compare[0].trend, Trend::Better);
+    }
+
+    #[test]
+    fn a_compare_row_shortens_to_its_delta_for_the_list() {
+        let line = |text: &str| CompareLine {
+            text: text.into(),
+            trend: Trend::Same,
+        };
+        assert_eq!(
+            short_delta(&line("48 Armor (+31)")).as_deref(),
+            Some("+31 Armor")
+        );
+        assert_eq!(
+            short_delta(&line("3.0 damage per second (-1.9)")).as_deref(),
+            Some("-1.9 DPS")
+        );
+        assert_eq!(
+            short_delta(&line("+1 Agility (+1)")).as_deref(),
+            Some("+1 Agi")
+        );
+        assert_eq!(short_delta(&line("Also takes off your Buckler")), None);
     }
 
     #[test]

@@ -77,6 +77,9 @@ $tables = [ordered]@{
     creature_movement = @(
         'id,point,position_x,position_y,position_z,orientation,waittime,wander_distance,script_id,path_id',
         'mangos.creature_movement t')
+    creature_movement_template = @(
+        'entry,point,position_x,position_y,position_z,orientation,waittime,wander_distance,script_id,path_id',
+        'mangos.creature_movement_template t')
     # The scripts a quest runs when it is accepted (`StartScript`) or handed in (`CompleteScript`): `id` is that script id.
     # No patch columns. All columns, all rows (the game does not run them; it logs that it skips them).
     quest_start_scripts = @(
@@ -95,6 +98,10 @@ $tables = [ordered]@{
     game_event_gameobject = @('guid,event', 'mangos.game_event_gameobject t')
     game_event_quest = @('quest,event', 'mangos.game_event_quest t')
     game_event = @('entry,description,holiday', 'mangos.game_event t')
+    # Creature pools: template pools expand an entry to its candidate spawn GUIDs (Hogger/Thuros).
+    pool_template = @('entry,max_limit', (Live 'pool_template'))
+    pool_creature = @('guid,pool_entry,chance', (Live 'pool_creature'))
+    pool_creature_template = @('id,pool_entry,chance', (Live 'pool_creature_template'))
 }
 
 # -Only keeps just the named tables (`-File ... -Only a,b` arrives as the one string "a,b": split it).

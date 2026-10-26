@@ -48,6 +48,7 @@ pub enum Action {
     Pack,
     Equipment,
     QuestLog,
+    Map,
     Talk,
     Menu,
     LookUp,
@@ -90,7 +91,7 @@ impl Group {
 }
 
 impl Action {
-    pub const ALL: [Action; 31] = [
+    pub const ALL: [Action; 32] = [
         Action::MoveForward,
         Action::MoveBack,
         Action::MoveLeft,
@@ -116,6 +117,7 @@ impl Action {
         Action::Pack,
         Action::Equipment,
         Action::QuestLog,
+        Action::Map,
         Action::Talk,
         Action::Menu,
         Action::LookUp,
@@ -152,6 +154,7 @@ impl Action {
             Action::Pack => "pack",
             Action::Equipment => "equipment",
             Action::QuestLog => "quest_log",
+            Action::Map => "map",
             Action::Talk => "talk",
             Action::Menu => "menu",
             Action::LookUp => "look_up",
@@ -193,6 +196,7 @@ impl Action {
             Action::Pack => "Pack",
             Action::Equipment => "Equipment",
             Action::QuestLog => "Quest log",
+            Action::Map => "Map",
             Action::Talk => "Talk to NPC",
             Action::Menu => "Menu",
             Action::LookUp => "Look up",
@@ -225,7 +229,9 @@ impl Action {
             | Action::Ability4
             | Action::AbilityCycle
             | Action::AbilityUse => Group::Abilities,
-            Action::Pack | Action::Equipment | Action::QuestLog | Action::Menu => Group::Screens,
+            Action::Pack | Action::Equipment | Action::QuestLog | Action::Map | Action::Menu => {
+                Group::Screens
+            }
             Action::LookUp | Action::LookDown | Action::LookLeft | Action::LookRight => {
                 Group::Camera
             }
@@ -361,6 +367,7 @@ fn default_keys(action: Action) -> [Option<Chord>; 2] {
         Pack => [key(K::Tab), None],
         Equipment => [key(K::KeyG), None],
         QuestLog => [key(K::KeyL), None],
+        Map => [key(K::KeyM), None],
         Talk => [key(K::KeyT), None],
         Menu => [key(K::Escape), None],
         LookUp => [key(K::ArrowUp), None],

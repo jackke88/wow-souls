@@ -17,9 +17,7 @@ use crate::actor::{ActorModel, Look};
 use crate::friendly::Npc;
 use crate::settle::Phase;
 
-const IVORY: Color = Color::srgb(0.88, 0.85, 0.77);
-const GOLD: Color = Color::srgb(0.92, 0.76, 0.28);
-const MUTED: Color = Color::srgb(0.67, 0.65, 0.58);
+use crate::hud::theme::{GOLD, IVORY, MUTED};
 
 const TRACKER_MAX: usize = 5;
 
@@ -61,18 +59,20 @@ pub fn plugin(app: &mut App) {
         .add_systems(OnEnter(Phase::Playing), spawn)
         .add_systems(
             Update,
-            (refresh, rewards::refresh, mark_npcs, spin_marks)
+            (
+                refresh,
+                rewards::refresh,
+                mark_npcs,
+                mark_memorials,
+                spin_marks,
+            )
                 .after(super::drive)
                 .run_if(in_state(Phase::Playing)),
         );
 }
 
 fn fonts(mut commands: Commands, mut fonts: ResMut<Assets<Font>>) {
-    let body = std::fs::read("C:/Windows/Fonts/georgia.ttf")
-        .ok()
-        .and_then(|b| Font::try_from_bytes(b).ok())
-        .map(|f| fonts.add(f))
-        .unwrap_or_default();
+    let body = crate::hud::font::project_font(&mut fonts);
     commands.insert_resource(Fonts { body });
 }
 
@@ -109,6 +109,15 @@ fn frame(
     image: Option<Handle<Image>>,
     panel: Panel,
 ) -> Entity {
+    if crate::hud::theme::enabled() {
+        let e = if matches!(panel, Panel::Dialogue | Panel::Log | Panel::Interact) {
+            crate::hud::theme::panel(commands, node, None)
+        } else {
+            commands.spawn(node).id()
+        };
+        commands.entity(e).insert((panel, Visibility::Hidden));
+        return e;
+    }
     let mut e = commands.spawn((node, panel, Visibility::Hidden));
     match image {
         Some(image) => {
@@ -541,6 +550,10 @@ fn marker_model(mark: Mark) -> Option<&'static str> {
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 struct QuestMarker(Mark);
 
+/// Shares the same native spinning yellow question mark as a quest hand-in.
+#[derive(Component)]
+struct MemorialMarker;
+
 /// The marker has started its looping animation.
 #[derive(Component)]
 struct Spinning;
@@ -548,6 +561,55 @@ struct Spinning;
 /// How high over the NPC's feet the marker floats (yd) and how big it is (yd per model unit).
 const MARK_HEIGHT: f32 = 2.4;
 const MARK_SCALE: f32 = 1.3;
+// The cap is 1.64 yd high. Native art starts 0.15 yd above its origin and bobs
+// down 0.09 yd: this leaves a small clear gap and stays visible at binding range.
+const MEMORIAL_MARK_HEIGHT: f32 = 1.75;
+
+fn mark_memorials(
+    mut commands: Commands,
+    game: Option<Res<QuestGame>>,
+    binding: Res<crate::soulbind::Binding>,
+    assets: Res<AssetServer>,
+    stones: Query<(Entity, &crate::soulbind::Memorial, Option<&Children>)>,
+    markers: Query<(), With<MemorialMarker>>,
+) {
+    let target = super::soul_tutorial::target(game.as_deref(), &binding).map(|s| s.id);
+    for (stone, site, children) in &stones {
+        let current = children
+            .into_iter()
+            .flat_map(|c| c.iter())
+            .find(|c| markers.contains(*c));
+        if target != Some(site.0) {
+            if let Some(old) = current {
+                commands.entity(old).despawn();
+                info!(
+                    "soulbind: removed tutorial question mark from memorial {}",
+                    site.0
+                );
+            }
+        } else if current.is_none() {
+            commands.spawn((
+                Name::new("Bind Soul objective question mark"),
+                MemorialMarker,
+                QuestMarker(Mark::Ready),
+                Transform::from_translation(Vec3::Y * MEMORIAL_MARK_HEIGHT),
+                Visibility::default(),
+                ActorModel {
+                    m2: assets.load(benilla_assets::m2_url(marker_model(Mark::Ready).unwrap())),
+                    dir: "Interface/Buttons".into(),
+                    look: Look::Creature {
+                        skins: [None, None, None],
+                    },
+                    scale: 1.0,
+                    display: 0,
+                    worn: None,
+                },
+                ChildOf(stone),
+            ));
+            info!("soulbind: tutorial question mark over memorial {}", site.0);
+        }
+    }
+}
 
 /// Keeps one marker model above each NPC with quest business, replacing it when the business changes.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]

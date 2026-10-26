@@ -55,19 +55,30 @@ fn write_clip(path: &Path, clip: &wscl::Clip) -> Result<()> {
 }
 
 /// Writes a clip's two files: on the WoW rig (`wow_dir`) and on the DS skeleton (`ds_dir`).
-fn write_pair(out: &Path, wow_dir: &str, ds_dir: &str, name: &str, r: &Retargeted) -> Result<()> {
+pub(crate) fn write_pair(
+    out: &Path,
+    wow_dir: &str,
+    ds_dir: &str,
+    name: &str,
+    r: &Retargeted,
+) -> Result<()> {
     write_clip(&out.join(wow_dir).join(format!("{name}.wscl")), &r.wow)?;
     write_clip(&out.join(ds_dir).join(format!("{name}.wscl")), &r.ds)
 }
 
 /// One clip, extracted.
-struct Extracted {
-    r: Retargeted,
-    basis: Basis,
+pub(crate) struct Extracted {
+    pub(crate) r: Retargeted,
+    pub(crate) basis: Basis,
 }
 
 /// Decodes a clip, retargets it onto a WoW rig, checks it, and marks its hit windows.
-fn extract_clip(player: &Player, skel: &WowSkel, rig: &Rig, name: &str) -> Result<Extracted> {
+pub(crate) fn extract_clip(
+    player: &Player,
+    skel: &WowSkel,
+    rig: &Rig,
+    name: &str,
+) -> Result<Extracted> {
     let clip = dsr::decode(player, name)?;
     let mut r = retarget::retarget(&player.skeleton, &clip, skel, rig, player.flags(name))?;
     if r.max_error_deg > MAX_ERROR_DEG {
@@ -158,7 +169,7 @@ impl Worst {
 }
 
 /// One console line for an extracted clip.
-fn summary(name: &str, r: &Retargeted) -> String {
+pub(crate) fn summary(name: &str, r: &Retargeted) -> String {
     let rm = r.wow.root_motion.last().copied().unwrap_or([0.0; 4]);
     let contact = if r.contact_frames == 0 {
         "no contact frames".to_string()
@@ -211,8 +222,8 @@ fn extract_monsters(
 }
 
 /// One creature's kit: every clip retargeted onto its WoW model, written to `<kit.name>/` (WoW
-/// bones, local) and `<kit.chr>/` (the Dark Souls creature's bones, model space); returns the
-/// manifest's `monster` lines.
+/// bones, local) and `<kit.reference_dir()>/` (the source bones, model space at this target's
+/// scale); returns the manifest's `monster` lines. Original kits keep their chr folder.
 fn extract_kit(
     kit: &monster::Kit,
     dsr_dir: &Path,
@@ -223,6 +234,7 @@ fn extract_kit(
 ) -> Result<String> {
     kit.check(params)?;
     let source = dsr::load_chr(dsr_dir, kit.chr)?;
+    let player = kit.player_attacks.map(|_| dsr::load(dsr_dir)).transpose()?;
     let skel = wow::skeleton(wow_dir, kit.wow_model)?;
     let rig = kit.rig;
     let bone = |n: &str| {
@@ -243,26 +255,119 @@ fn extract_kit(
     let npc = params.npc(kit.npc)?;
     let think = params.think(i32::try_from(npc.think)?)?;
     let mut lines = String::new();
+    // The other creatures the kit borrows attacks from ([`monster::BORROWED`]), loaded once each.
+    let mut lenders = std::collections::BTreeMap::new();
+    for a in kit.attacks {
+        if let Some(b) = monster::borrowed(kit.name, a.name) {
+            if !lenders.contains_key(b.chr) {
+                // The player (`c0000`) lends its casts; every other lender is a creature.
+                let lender = if b.chr == "c0000" {
+                    dsr::load(dsr_dir)?
+                } else {
+                    dsr::load_chr(dsr_dir, b.chr)?
+                };
+                lenders.insert(b.chr, lender);
+            }
+        }
+    }
+    let lent = |clip: &str| {
+        kit.attacks
+            .iter()
+            .filter(|a| a.clip == clip)
+            .find_map(|a| monster::borrowed(kit.name, a.name))
+    };
+    // When each move's ground shock lands ([`monster::SHOCKS`]), read before a boss's judge filter drops its window.
+    let mut shock_times = std::collections::BTreeMap::new();
     let mut extracted = std::collections::BTreeMap::new();
     for clip in kit.clips() {
-        let e =
-            extract_clip(&source, &skel, rig, clip).with_context(|| format!("kit clip {clip}"))?;
+        let attack_source = kit
+            .player_attacks
+            .filter(|_| kit.attacks.iter().any(|a| a.clip == clip));
+        let (clip_source, clip_rig) = match attack_source {
+            Some(pc) => (player.as_ref().context("missing PC attack source")?, pc.rig),
+            None => (&source, rig),
+        };
+        let (clip_source, clip_rig) = match lent(clip) {
+            Some(b) => (&lenders[b.chr], b.rig),
+            None => (clip_source, clip_rig),
+        };
+        let mut e = extract_clip(clip_source, &skel, clip_rig, clip)
+            .with_context(|| format!("kit clip {clip}"))?;
+        if attack_source.is_some() {
+            // Kicks invoke PCBehavior (TAE 307, type 8), unlike weapon swings' event 1.
+            // Restrict this extra reader to explicitly borrowed PC creature attacks so
+            // existing player and monster cache files keep their original event data.
+            let mut hits = clip_source.hits(clip);
+            hits.extend(clip_source.events(clip).iter().filter_map(|ev| {
+                if ev.kind != 307 || ev.param_i32(1) != Some(8) {
+                    return None;
+                }
+                Some(wscl::HitWindow {
+                    judge: ev.param_i32(2)?,
+                    start: ev.start,
+                    end: ev.end,
+                })
+            }));
+            e.r.ds.hits = hits.clone();
+            e.r.wow.hits = hits;
+        }
+        if let Some(a) = kit.attacks.iter().find(|a| a.clip == clip) {
+            // A boss's swing names the judge it is; the windows of the others (the shockwave) go.
+            if let Some(s) = monster::shock_of(kit.name, a.name) {
+                let at = monster::shock_at(&e.r.wow.hits, s, a.judge)
+                    .with_context(|| format!("{}: no window for its shock", a.clip))?;
+                shock_times.insert(a.name, at);
+            }
+            if kit.tier == monster::Tier::Boss {
+                // A combo's second blow is kept as the move's own ([`monster::FOLLOW_JUDGES`]).
+                monster::merge_follow_judges(&mut e.r.wow.hits, kit.name, a.judge);
+                monster::keep_judge(&mut e.r.wow.hits, a.judge);
+            }
+            // A movement move (a charge, a hop, a leap) has no blow in its clip: the kit's window.
+            if let (true, Some((start, end))) = (e.r.wow.hits.is_empty(), a.window) {
+                e.r.wow.hits.push(wscl::HitWindow {
+                    judge: a.judge,
+                    start,
+                    end,
+                });
+            }
+            if a.name == "leap" {
+                let leap = monster::leap_of(kit.name);
+                if let Some(mirror) = leap.mirror {
+                    let m = extract_clip(clip_source, &skel, clip_rig, mirror)
+                        .with_context(|| format!("the leap's mirror {mirror}"))?;
+                    monster::blend_mirror(&mut e.r.wow, &m.r.wow);
+                }
+                if let Some(w) = e.r.wow.hits.first().copied() {
+                    monster::bake_leap(&mut e.r.wow, (w.start, w.end), leap);
+                }
+            }
+        }
         worst.add(&e.r);
-        write_pair(out, kit.name, kit.chr, clip, &e.r)?;
+        write_pair(out, kit.name, kit.reference_dir(), clip, &e.r)?;
         println!("{}", summary(clip, &e.r));
         extracted.insert(clip, e);
     }
+    // The kit's own leg scale: a borrowed clip carries its lender's.
     let scale = extracted
-        .values()
-        .next()
-        .map(|e| e.basis.scale)
+        .iter()
+        .find(|(clip, _)| lent(clip).is_none())
+        .map(|(_, e)| e.basis.scale)
         .context("the kit has no clips")?;
     writeln!(
         lines,
         "monster {} chr {} npc {} hp {} poise {} scale {scale:.4}",
         kit.name, kit.chr, kit.npc, npc.hp, npc.poise
     )?;
-    writeln!(lines, "souls {} {}", kit.name, npc.get_soul)?;
+    if let Some(dir) = kit.reference_dir {
+        writeln!(lines, "reference {dir}")?;
+    }
+    writeln!(
+        lines,
+        "souls {} {}",
+        kit.name,
+        monster::souls_for(kit.tier, npc.get_soul)
+    )?;
     for a in kit.attacks {
         let e = &extracted[a.clip];
         let judge =
@@ -277,19 +382,149 @@ fn extract_kit(
             a.clip,
             a.judge
         );
-        // Every window of a multi-hit move is the same blow (one `AtkParam_Npc` row).
+        // Every window of a multi-hit move is the same source blow.
         ensure!(
             e.r.wow.hits.iter().all(|h| h.judge == judge),
             "{}: its hit windows carry different judge ids",
             a.clip
         );
-        let n = params.npc_attack(kit.variation, judge)?;
+        let n = kit.attack(params, judge)?;
         kit.tier.check_attack(a.name, n.level, e.r.wow.hits.len())?;
         writeln!(
             lines,
             "attack {} {} judge {judge} phys {} poise {} level {} radius {:.2} radius2 {:.2} stop {:.2} knock {:.2}",
             a.name, a.clip, n.phys, n.poise, n.level, n.radius, n.radius2, n.stop, n.knock
         )?;
+        if let Some(s) = monster::shock_of(kit.name, a.name) {
+            // The ground shock: its row's numbers, its radius scaled (DS metres; the game scales it as a reach).
+            let n = params.npc_attack(kit.variation, s.judge)?;
+            writeln!(
+                lines,
+                "attack-shock {} judge {} at {:.3} radius {:.2} phys {} poise {} level {} knock {:.2}",
+                a.name,
+                s.judge,
+                shock_times[a.name],
+                n.radius * s.radius_scale,
+                n.phys,
+                n.poise,
+                n.level,
+                n.knock
+            )?;
+        }
+        if monster::BLASTS.contains(&(kit.name, a.name)) {
+            // The blast around the creature: the clip's bullet event, its Bullet row's radius and the attack it
+            // hits with (a blast of the Abyss is magic; the game has one damage, so phys + magic).
+            let ev = source
+                .events(a.clip)
+                .iter()
+                .find(|ev| ev.kind == 2)
+                .with_context(|| format!("{}: no bullet event for its blast", a.clip))?;
+            let judge = ev.param_i32(2).context("the bullet event's judge")?;
+            let b = params.npc_bullet(kit.variation, judge)?;
+            let atk = b
+                .attack
+                .with_context(|| format!("{}: its blast's bullet carries no attack", a.clip))?;
+            let magic =
+                params.npc_atk_magic(i32::try_from(b.row.atk_id).context("atkId_Bullet")?)?;
+            writeln!(
+                lines,
+                "attack-blast {} at {:.3} radius {:.2} phys {} poise {} level {} knock {:.2}",
+                a.name,
+                ev.start,
+                b.row.radius,
+                atk.phys + magic,
+                atk.poise,
+                atk.level,
+                atk.knock
+            )?;
+        }
+        if let Some(t) = monster::tamed(kit.name, judge) {
+            writeln!(
+                lines,
+                "attack-adaptation {} tame source-level {} source-phys {} level {} phys {} poise {} knock {:.2} guard-rate {} blockable",
+                a.name, t.source_level, t.source_phys, t.level, t.phys, t.poise, t.knock, t.guard_rate
+            )?;
+        }
+        if let Some(b) = monster::borrowed(kit.name, a.name) {
+            // The lender's leg scale sizes the blow's radius; its volume runs along the kit's bones.
+            writeln!(
+                lines,
+                "attack-source {} chr {} weapon 0 variation {} scale {:.6}",
+                a.name, b.chr, b.variation, e.basis.scale
+            )?;
+            if let Some((hand, forearm)) = b.reach {
+                writeln!(lines, "attack-reach {} bones {hand} {forearm}", a.name)?;
+            }
+            if let Some(magic) = b.spell {
+                // The bolt the cast releases at its blow: speed (m/s), its acceleration to the top speed, the hit
+                // radius (m), how far it turns (deg/s) and how long it flies (s).
+                let m = params.magic(magic)?;
+                let bullet = params.bullet(i32::try_from(m.ref_id).context("refId")?)?;
+                writeln!(
+                    lines,
+                    "attack-bullet {} speed {} max {} accel {} radius {} homing {} life {}",
+                    a.name,
+                    bullet.init_speed,
+                    bullet.max_speed,
+                    bullet.accel_time,
+                    bullet.radius,
+                    bullet.homing_deg,
+                    bullet.life
+                )?;
+            }
+        }
+        if let Some(pc) = kit.player_attacks {
+            // A mixed source has its own leg scale. Keep the original DS radii and knock
+            // values, and let runtime use this attack's scale rather than the NPC source's.
+            writeln!(
+                lines,
+                "attack-source {} chr c0000 weapon {} variation {} scale {:.6}",
+                a.name, pc.weapon, pc.variation, e.basis.scale
+            )?;
+            let player = player.as_ref().context("missing PC attack source")?;
+            let is_kick = pc.response == Some(monster::PlayerResponse::SnapKick) && judge == 410;
+            if is_kick {
+                // The measured kick is the right foot, not an equipped blade.
+                let foot = pc.rig.legs.wow[1][2];
+                let toe = pc
+                    .rig
+                    .pairs
+                    .iter()
+                    .find(|p| p.wow == foot)
+                    .context("PC kick rig has no right toe")?
+                    .wow_aim;
+                writeln!(lines, "attack-reach {} bones {foot} {toe}", a.name)?;
+            } else {
+                let hand = pc
+                    .rig
+                    .pairs
+                    .iter()
+                    .find(|p| p.ds == pc.rig.names.hand)
+                    .context("PC attack rig has no hand")?
+                    .wow;
+                let weapon = player
+                    .skeleton
+                    .bone(pc.rig.names.weapon)
+                    .context("PC attack source has no weapon bone")?;
+                let axis = grip_axis(e, &player.skeleton, pc.rig, bonemap::DS_BLADE_AXIS)?;
+                let blade = e.basis.dir(bonemap::DS_BLADE_AXIS);
+                writeln!(
+                lines,
+                "attack-grip {} hand {hand} weapon {weapon} axis {:.6} {:.6} {:.6} blade {:.6} {:.6} {:.6}",
+                a.name, axis.x, axis.y, axis.z, blade.x, blade.y, blade.z
+            )?;
+            }
+            if is_kick {
+                let original = params.behavior(pc.variation, judge)?;
+                let source_guard = params.player_guard_attack(pc.weapon, pc.variation, judge)?;
+                let guard = kit.guard_attack(params, judge)?;
+                writeln!(
+                    lines,
+                    "attack-adaptation {} snap-kick source-level {} source-mult {} source-guard-rate {} level {} phys {} poise {} knock {} guard-rate {} unblockable {}",
+                    a.name, original.level, original.mult, source_guard.rate, n.level, n.phys, n.poise, n.knock, guard.rate, u8::from(guard.unblockable)
+                )?;
+            }
+        }
     }
     for r in kit.reacts {
         let e = &extracted[r.clip];
@@ -563,7 +798,8 @@ pub fn extract(dsr_dir: &Path, wow_dir: &Path, out: &Path, roll_name: Option<&st
     extract_defense(dsr_dir, wow_dir, out)?;
     extract_loot(dsr_dir, wow_dir, out)?;
     extract_weapons(dsr_dir, wow_dir, out)?;
-    extract_locomotion(dsr_dir, wow_dir, out)
+    extract_locomotion(dsr_dir, wow_dir, out)?;
+    crate::casts::extract(dsr_dir, wow_dir, out)
 }
 
 /// All weapon families, independently of the existing roll/monster/loot cache.
@@ -1059,7 +1295,7 @@ pub fn extract_defense(dsr_dir: &Path, wow_dir: &Path, out: &Path) -> Result<()>
     let mut parried_kits = Vec::new();
     for kit in monster::KITS {
         for a in kit.attacks {
-            let g = params.npc_guard_attack(kit.variation, a.judge)?;
+            let g = kit.guard_attack(&params, a.judge)?;
             writeln!(
                 lines,
                 "defattack {} {} rate {} unblockable {}",
@@ -1073,7 +1309,7 @@ pub fn extract_defense(dsr_dir: &Path, wow_dir: &Path, out: &Path) -> Result<()>
         if source.hkx.contains_key("a00_2100") {
             let skel = wow::skeleton(wow_dir, kit.wow_model)?;
             let e = extract_clip(&source, &skel, kit.rig, "a00_2100")?;
-            write_pair(out, kit.name, kit.chr, "a00_2100", &e.r)?;
+            write_pair(out, kit.name, kit.reference_dir(), "a00_2100", &e.r)?;
             parried_kits.push(kit.name);
             println!("{} parried: {}", kit.name, summary("a00_2100", &e.r));
         }
@@ -1286,6 +1522,53 @@ mod tests {
     }
 
     #[test]
+    fn install_the_gnoll_rig_names_bones_both_skeletons_have() {
+        let (Ok(dsr_dir), Ok(wow_dir)) = (std::env::var("DSR_DIR"), std::env::var("WOW_DATA"))
+        else {
+            eprintln!("DSR_DIR and WOW_DATA not both set; skipped");
+            return;
+        };
+        let skel = wow::skeleton(Path::new(&wow_dir), wow::GNOLL_M2).unwrap();
+        let source = dsr::load_chr(Path::new(&dsr_dir), "c2250").unwrap();
+        let rig = &bonemap::GNOLL_RIG;
+        assert_eq!(skel.parents.len(), 60, "the gnoll's bone count");
+        for p in rig.pairs {
+            assert!(
+                source.skeleton.bone(p.ds).is_some(),
+                "c2250 has no {}",
+                p.ds
+            );
+            assert!(
+                source.skeleton.bone(p.ds_aim).is_some(),
+                "c2250 has no {}",
+                p.ds_aim
+            );
+            assert!(
+                p.wow < skel.parents.len() && p.wow_aim < skel.parents.len(),
+                "{} {} {} {}",
+                p.ds,
+                p.wow,
+                p.ds_aim,
+                p.wow_aim
+            );
+        }
+        for n in [
+            rig.names.pelvis,
+            rig.names.head,
+            rig.names.hand,
+            rig.names.weapon,
+            rig.names.forearm,
+        ] {
+            assert!(source.skeleton.bone(n).is_some(), "c2250 has no {n}");
+        }
+        // The hips and the legs are inside the skeleton too.
+        assert!(rig.hips.wow_hip_root < skel.parents.len());
+        for leg in rig.legs.wow {
+            assert!(leg.iter().all(|&b| b < skel.parents.len()));
+        }
+    }
+
+    #[test]
     fn install_the_kobolds_moves_match_the_data_table() {
         let (Ok(dsr_dir), Ok(wow_dir)) = (std::env::var("DSR_DIR"), std::env::var("WOW_DATA"))
         else {
@@ -1373,6 +1656,287 @@ mod tests {
             .basis
             .scale;
         assert!((1.2..1.4).contains(&scale), "scale {scale}");
+    }
+
+    #[test]
+    fn install_the_direwolf_rig_and_bite_pass_the_unchanged_gates() {
+        let (Ok(dsr_dir), Ok(wow_dir)) = (std::env::var("DSR_DIR"), std::env::var("WOW_DATA"))
+        else {
+            eprintln!("DSR_DIR and WOW_DATA not both set; skipped");
+            return;
+        };
+        let kit = &monster::DIREWOLF;
+        let source = dsr::load_chr(Path::new(&dsr_dir), kit.chr).unwrap();
+        let skel = wow::skeleton(Path::new(&wow_dir), kit.wow_model).unwrap();
+        let rig = kit.rig;
+        assert_eq!(skel.parents.len(), 61);
+        assert_eq!(rig.hips.wow_hip_root, 19);
+        for p in rig.pairs {
+            assert!(source.skeleton.bone(p.ds).is_some(), "{}", p.ds);
+            assert!(source.skeleton.bone(p.ds_aim).is_some(), "{}", p.ds_aim);
+            for bone in [p.wow, p.wow_aim] {
+                assert!(bone < skel.parents.len());
+                let mut ancestor = bone;
+                while ancestor != rig.hips.wow_hip_root {
+                    ancestor = usize::try_from(skel.parents[ancestor])
+                        .unwrap_or_else(|_| panic!("bone {bone} is outside the body root"));
+                }
+            }
+        }
+        assert_eq!(
+            rig.checks.max_foot_gap,
+            bonemap::WOLF_RIG.checks.max_foot_gap
+        );
+        let pelvis = source.skeleton.bone(rig.names.pelvis).unwrap();
+        for name in kit.clips() {
+            let e = extract_clip(&source, &skel, rig, name).unwrap();
+            assert_eq!(e.r.wow.bones(), 61, "{name}");
+            assert!(e.r.contact_frames > 0, "{name}");
+            assert!((e.basis.scale - 1.179_536).abs() < 0.000_01, "{name}");
+            if name == "a00_3000" {
+                assert!((e.r.wow.duration() - 1.667).abs() < 0.002);
+                assert_eq!(e.r.wow.hits.len(), 1);
+                let h = &e.r.wow.hits[0];
+                assert_eq!(h.judge, 100);
+                assert!((h.start - 0.633).abs() < 0.001);
+                assert!((h.end - 0.867).abs() < 0.001);
+                assert!(
+                    (-e.r.wow.root_motion.last().unwrap()[2] - 0.65 * e.basis.scale).abs() < 0.01
+                );
+            }
+            if kit.deaths.contains(&name) {
+                monster::check_death(&e.r, pelvis, &kit.lying).unwrap();
+            }
+        }
+        // The 64-bone Wolf's lunge requires too much correction on this different body.
+        let why = extract_clip(&source, &skel, rig, "a00_3004")
+            .err()
+            .expect("the lunge must not enter this kit")
+            .to_string();
+        assert!(why.contains("feet"), "{why}");
+    }
+
+    #[test]
+    fn install_same_chr_targets_keep_their_separate_scaled_references() {
+        let (Ok(dsr_dir), Ok(wow_dir)) = (std::env::var("DSR_DIR"), std::env::var("WOW_DATA"))
+        else {
+            eprintln!("DSR_DIR and WOW_DATA not both set; skipped");
+            return;
+        };
+        let dsr = Path::new(&dsr_dir);
+        let wow = Path::new(&wow_dir);
+        let params = params::load(dsr).unwrap();
+        let dir = temp_dir("shared-chr-targets");
+        let mut worst = Worst::default();
+        let wolf = extract_kit(&monster::WOLF, dsr, wow, &dir, &params, &mut worst).unwrap();
+        let old_path = dir.join("c3340/a00_3000.wscl");
+        let old_bytes = std::fs::read(&old_path).unwrap();
+        let old_clip = wscl::Clip::read(&mut &old_bytes[..]).unwrap();
+        let direwolf =
+            extract_kit(&monster::DIREWOLF, dsr, wow, &dir, &params, &mut worst).unwrap();
+        assert!(!wolf.lines().any(|l| l.starts_with("reference ")));
+        assert!(direwolf.lines().any(|l| l == "reference direwolf_ds"));
+        assert_eq!(std::fs::read(&old_path).unwrap(), old_bytes);
+        let new_clip = wscl::Clip::read(
+            &mut std::fs::File::open(dir.join("direwolf_ds/a00_3000.wscl")).unwrap(),
+        )
+        .unwrap();
+        // Both have c3340's skeleton, but its model-space poses use different target leg scales.
+        assert_eq!(old_clip.parents, new_clip.parents);
+        assert!(
+            (old_clip.root_motion.last().unwrap()[2] - new_clip.root_motion.last().unwrap()[2])
+                .abs()
+                > 0.05
+        );
+        for (name, bones) in [("wolf", 64), ("direwolf", 61)] {
+            let clip = wscl::Clip::read(
+                &mut std::fs::File::open(dir.join(name).join("a00_3000.wscl")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(clip.bones(), bones);
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn install_the_female_thief_has_its_own_rig_and_preserves_the_male_references() {
+        let (Ok(dsr_dir), Ok(wow_dir)) = (std::env::var("DSR_DIR"), std::env::var("WOW_DATA"))
+        else {
+            return;
+        };
+        let (dsr, wow) = (Path::new(&dsr_dir), Path::new(&wow_dir));
+        let kit = &monster::THUG_FEMALE;
+        let skel = wow::skeleton(wow, kit.wow_model).unwrap();
+        let source = dsr::load_chr(dsr, kit.chr).unwrap();
+        assert_eq!(skel.parents.len(), 117);
+        assert_eq!(kit.rig.hips.wow_hip_root, 20);
+        assert_eq!(kit.rig.checks.max_foot_gap, bonemap::DEFAULT_FOOT_GAP);
+        for pair in kit.rig.pairs {
+            for mut bone in [pair.wow, pair.wow_aim] {
+                while bone != 20 {
+                    bone = usize::try_from(skel.parents[bone]).expect("body root owns all pairs");
+                }
+            }
+        }
+        assert!(skel.pivots[24].x < 0.0 && skel.pivots[25].x > 0.0);
+        let pelvis = source.skeleton.bone(kit.rig.names.pelvis).unwrap();
+        for name in kit.clips() {
+            let e = extract_clip(&source, &skel, kit.rig, name).unwrap();
+            assert_eq!(e.r.wow.bones(), 117, "{name}");
+            assert!(e.r.contact_frames > 0, "{name}");
+            if kit.deaths.contains(&name) {
+                monster::check_death(&e.r, pelvis, &kit.lying).unwrap();
+            }
+        }
+        let params = params::load(dsr).unwrap();
+        let dir = temp_dir("female-target");
+        let mut worst = Worst::default();
+        extract_kit(&monster::THUG, dsr, wow, &dir, &params, &mut worst).unwrap();
+        let old_path = dir.join("c2520/a00_3003.wscl");
+        let old = std::fs::read(&old_path).unwrap();
+        let manifest = extract_kit(kit, dsr, wow, &dir, &params, &mut worst).unwrap();
+        assert!(manifest.lines().any(|l| l == "reference thug_female_ds"));
+        assert_eq!(std::fs::read(old_path).unwrap(), old);
+        assert!(dir.join("thug_female_ds/a00_3003.wscl").is_file());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn install_the_two_handed_human_keeps_pc_attacks_and_npc_reactions_separate() {
+        let (Ok(dsr_dir), Ok(wow_dir)) = (std::env::var("DSR_DIR"), std::env::var("WOW_DATA"))
+        else {
+            return;
+        };
+        let (dsr, wow) = (Path::new(&dsr_dir), Path::new(&wow_dir));
+        let params = params::load(dsr).unwrap();
+        let kit = &monster::HUMAN_AXE_2H;
+        kit.check(&params).unwrap();
+        let pc = kit.player_attacks.unwrap();
+        let player = dsr::load(dsr).unwrap();
+        let thief = dsr::load_chr(dsr, kit.chr).unwrap();
+        let skel = wow::skeleton(wow, kit.wow_model).unwrap();
+        for (a, judge) in kit.attacks.iter().zip([200, 210]) {
+            let e = extract_clip(&player, &skel, pc.rig, a.clip).unwrap();
+            assert_eq!(e.r.wow.bones(), 119);
+            assert_eq!(e.r.wow.hits.len(), 1);
+            assert!(e.r.contact_frames > 0);
+            let hit = &e.r.wow.hits[0];
+            assert_eq!(hit.judge, judge);
+            assert!((hit.start - 0.633_333).abs() < 0.000_01);
+            assert!((hit.end - 0.766_667).abs() < 0.000_01);
+            let source = params.behavior(pc.variation, judge).unwrap();
+            let blow = kit.attack(&params, judge).unwrap();
+            assert_eq!(source.level, 2);
+            assert_eq!(blow.level, source.level);
+            assert_eq!(
+                blow.phys,
+                (params.weapon_damage(pc.weapon).unwrap() as f32 * 1.2).round() as i64
+            );
+            assert_eq!(
+                blow.poise,
+                (params.weapon_poise(pc.weapon).unwrap() * 1.5).round() as i64
+            );
+            assert_eq!(blow.radius, source.radius);
+            assert_eq!(blow.knock, source.knock);
+            assert_eq!(kit.guard_attack(&params, judge).unwrap().rate, 60);
+        }
+        let pelvis = thief.skeleton.bone(kit.rig.names.pelvis).unwrap();
+        for name in kit.deaths {
+            let e = extract_clip(&thief, &skel, kit.rig, name).unwrap();
+            monster::check_death(&e.r, pelvis, &kit.lying).unwrap();
+        }
+        let dir = temp_dir("human-axe-mixed-source");
+        let mut worst = Worst::default();
+        extract_kit(&monster::THUG, dsr, wow, &dir, &params, &mut worst).unwrap();
+        let old_path = dir.join("c2520/a00_3003.wscl");
+        let old_bytes = std::fs::read(&old_path).unwrap();
+        let sentinel = b"the player's existing cache";
+        std::fs::create_dir_all(dir.join("c0000")).unwrap();
+        std::fs::write(dir.join("c0000/a30_4000.wscl"), sentinel).unwrap();
+        let manifest = extract_kit(kit, dsr, wow, &dir, &params, &mut worst).unwrap();
+        assert!(manifest.lines().any(|l| l == "reference human_axe_2h_ds"));
+        assert!(manifest.contains("attack axe_1 a30_4000 judge 200"));
+        assert!(
+            manifest.contains("attack-source axe_1 chr c0000 weapon 701000 variation 3000 scale ")
+        );
+        assert!(manifest.contains("attack-grip axe_1 hand 97 weapon "));
+        assert_eq!(std::fs::read(old_path).unwrap(), old_bytes);
+        assert_eq!(
+            std::fs::read(dir.join("c0000/a30_4000.wscl")).unwrap(),
+            sentinel
+        );
+        for clip in kit.clips() {
+            assert!(dir
+                .join("human_axe_2h")
+                .join(format!("{clip}.wscl"))
+                .is_file());
+            assert!(dir
+                .join("human_axe_2h_ds")
+                .join(format!("{clip}.wscl"))
+                .is_file());
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn install_the_bandit_kick_keeps_its_source_and_bounded_common_response() {
+        let (Ok(dsr_dir), Ok(wow_dir)) = (std::env::var("DSR_DIR"), std::env::var("WOW_DATA"))
+        else {
+            return;
+        };
+        let (dsr, wow) = (Path::new(&dsr_dir), Path::new(&wow_dir));
+        let params = params::load(dsr).unwrap();
+        assert_eq!(params.weapon(201_000).unwrap().variation, 2_300);
+        let source = params.behavior(2_300, 410).unwrap();
+        assert_eq!((source.level, source.mult), (5, 0.0));
+        assert_eq!(
+            params
+                .player_guard_attack(201_000, 2_300, 410)
+                .unwrap()
+                .rate,
+            70
+        );
+        let raw = monster::Kit {
+            player_attacks: Some(monster::PlayerAttacks {
+                response: None,
+                ..monster::HUMAN_BANDIT.player_attacks.unwrap()
+            }),
+            ..monster::HUMAN_BANDIT
+        };
+        assert!(raw
+            .check(&params)
+            .unwrap_err()
+            .to_string()
+            .contains("too hard"));
+        let dir = temp_dir("bandit-kick");
+        let mut worst = Worst::default();
+        for (kit, bones, foot, toe) in [
+            (&monster::HUMAN_BANDIT, 119, 70, 81),
+            (&monster::HUMAN_BANDIT_FEMALE, 117, 68, 80),
+        ] {
+            let blow = kit.attack(&params, 410).unwrap();
+            assert_eq!((blow.phys, blow.poise, blow.level), (44, 10, 1));
+            assert_eq!((blow.radius, blow.knock), (source.radius, 0.45));
+            let guard = kit.guard_attack(&params, 410).unwrap();
+            assert_eq!((guard.rate, guard.unblockable), (20, false));
+            assert_eq!(kit.guard_attack(&params, 0).unwrap().rate, 25);
+            let manifest = extract_kit(kit, dsr, wow, &dir, &params, &mut worst).unwrap();
+            assert!(manifest.contains(&format!("attack-reach kick bones {foot} {toe}")));
+            assert!(
+                manifest.contains("attack-adaptation kick snap-kick source-level 5 source-mult 0")
+            );
+            assert!(!manifest.contains("attack-grip kick "));
+            let clip = wscl::Clip::read(
+                &mut std::fs::File::open(dir.join(kit.name).join("a23_3100.wscl")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(clip.bones(), bones);
+            assert_eq!(clip.hits.len(), 1);
+            assert_eq!(clip.hits[0].judge, 410);
+            assert!((clip.hits[0].start - 0.433_333).abs() < 0.000_01);
+            assert!((clip.hits[0].end - 0.566_667).abs() < 0.000_01);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

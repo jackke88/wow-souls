@@ -80,6 +80,8 @@ struct BarUi {
     chip: Entity,
     cur: Entity,
     damage: Entity,
+    full: f32,
+    center: Vec2,
 }
 
 struct Tracked {
@@ -97,7 +99,7 @@ pub fn plugin(app: &mut App) {
         update
             .after(bevy::transform::TransformSystems::Propagate)
             .run_if(in_state(Phase::Playing))
-            .run_if(resource_exists::<HudArt>),
+            .run_if(resource_exists::<HudArt>.or(super::theme::enabled)),
     );
 }
 
@@ -151,6 +153,66 @@ fn spawn_ui(commands: &mut Commands, art: &HudArt, name: &str) -> BarUi {
         chip,
         cur,
         damage,
+        full,
+        center: {
+            let r = art.m.sprite("enemy_HP/HP_bar1").rect;
+            Vec2::new((r.l + r.r) * 0.5, (r.t + r.b) * 0.5)
+        },
+    }
+}
+
+fn spawn_native(commands: &mut Commands, font: &Handle<Font>, name: &str) -> BarUi {
+    let root = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                width: px(140),
+                height: px(42),
+                ..default()
+            },
+            Visibility::Hidden,
+        ))
+        .id();
+    let (_, chip, cur) = super::theme::meter(
+        commands,
+        root,
+        Node {
+            position_type: PositionType::Absolute,
+            top: px(20),
+            width: px(140),
+            height: px(5),
+            ..default()
+        },
+        Color::srgb(0.55, 0.11, 0.09),
+    );
+    super::theme::words(
+        commands,
+        root,
+        &display_name(name),
+        font,
+        12.0,
+        Node::default(),
+    );
+    let damage = super::theme::words(
+        commands,
+        root,
+        "",
+        font,
+        12.0,
+        Node {
+            position_type: PositionType::Absolute,
+            right: px(0),
+            top: px(26),
+            ..default()
+        },
+    );
+    BarUi {
+        root,
+        chip,
+        cur,
+        damage,
+        full: 138.6,
+        center: Vec2::new(70.0, 22.5),
     }
 }
 
@@ -158,15 +220,17 @@ fn spawn_ui(commands: &mut Commands, art: &HudArt, name: &str) -> BarUi {
 fn update(
     mut commands: Commands,
     real: Res<Time<Real>>,
-    art: Res<HudArt>,
+    art: Option<Res<HudArt>>,
+    fonts: Res<crate::loot::ui::Fonts>,
     ui_scale: Res<UiScale>,
     mut hits: MessageReader<Hit>,
     mut tracking: ResMut<Tracking>,
     targets: Query<(&GlobalTransform, &Health, Option<&Name>)>,
-    bosses: Query<(), With<crate::species::Boss>>,
+    bosses: Query<(), With<crate::species::BossBar>>,
     cams: Query<(&Camera, &GlobalTransform), With<benilla_world::view::WorldCamera>>,
     mut nodes: Query<&mut Node>,
     mut texts: Query<&mut BitmapText>,
+    mut native_texts: Query<&mut Text>,
     mut vis: Query<&mut Visibility>,
 ) {
     let now = real.elapsed_secs();
@@ -192,7 +256,14 @@ fn update(
                     }
                 }
             }
-            let ui = spawn_ui(&mut commands, &art, name.map_or("Enemy", |n| n.as_str()));
+            let name = name.map_or("Enemy", |n| n.as_str());
+            let ui = if super::theme::enabled() {
+                spawn_native(&mut commands, &fonts.body, name)
+            } else if let Some(art) = &art {
+                spawn_ui(&mut commands, art, name)
+            } else {
+                continue;
+            };
             // The bar starts at what the creature had before this blow.
             tracking.0.insert(
                 h.target,
@@ -211,8 +282,6 @@ fn update(
         Ok(c) => c,
         Err(_) => return,
     };
-    let full = art.m.sprite("enemy_HP/HP_bar1").rect.w();
-    let bar_y = art.m.sprite("enemy_HP/HP_bar1").rect;
     let mut gone = Vec::new();
     for (e, t) in &mut tracking.0 {
         let Ok((at, hp, _)) = targets.get(*e) else {
@@ -224,16 +293,31 @@ fn update(
             continue;
         }
         t.chip.step(hp.cur, hp.max, dt, CHIP_HOLD, CHIP_DRAIN);
+        let full = t.ui.full;
         if let Ok(mut n) = nodes.get_mut(t.ui.cur) {
-            n.width = px(full * fraction(hp.cur, hp.max));
+            n.width = if super::theme::enabled() {
+                percent(fraction(hp.cur, hp.max) * 100.0)
+            } else {
+                px(full * fraction(hp.cur, hp.max))
+            };
         }
         if let Ok(mut n) = nodes.get_mut(t.ui.chip) {
-            n.width = px(full * fraction(t.chip.shown, hp.max));
+            n.width = if super::theme::enabled() {
+                percent(fraction(t.chip.shown, hp.max) * 100.0)
+            } else {
+                px(full * fraction(t.chip.shown, hp.max))
+            };
         }
         if let Ok(mut text) = texts.get_mut(t.ui.damage) {
             let want = t.run.shown(now).map_or_else(String::new, |n| n.to_string());
             if text.text != want {
                 text.text = want;
+            }
+        }
+        if let Ok(mut text) = native_texts.get_mut(t.ui.damage) {
+            let want = t.run.shown(now).map_or_else(String::new, |n| n.to_string());
+            if text.0 != want {
+                text.0 = want;
             }
         }
         let screen = cam
@@ -252,8 +336,8 @@ fn update(
         }
         if let (Some(p), Ok(mut n)) = (screen, nodes.get_mut(t.ui.root)) {
             // The bar's middle sits on the point.
-            n.left = px(p.x - (bar_y.l + bar_y.r) * 0.5);
-            n.top = px(p.y - (bar_y.t + bar_y.b) * 0.5);
+            n.left = px(p.x - t.ui.center.x);
+            n.top = px(p.y - t.ui.center.y);
         }
     }
     for e in gone {

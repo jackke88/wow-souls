@@ -266,9 +266,11 @@ impl Selection {
         }
     }
 
-    /// The only combination the game can play yet: Human, Warrior, male.
+    /// The combinations the current character/game data can play.
     pub fn playable(&self) -> bool {
-        self.race == 1 && self.class == 1 && self.sex == 0
+        crate::character::Race::from_id(self.race).is_some_and(|r| r.enabled())
+            && crate::character::Class::from_id(self.class).is_some_and(|c| c.enabled())
+            && crate::character::Sex::from_index(self.sex).is_some_and(|s| s.enabled())
     }
 }
 
@@ -435,10 +437,12 @@ mod tests {
     }
 
     #[test]
-    fn only_a_human_male_warrior_is_playable() {
+    fn creation_availability_matches_the_classes_the_game_actually_supports() {
         let r = Rules::standard();
         let mut s = Selection::new(&r);
         assert!(s.playable());
+        s.class = 8;
+        assert!(s.playable(), "Mage is implemented");
         s.pick_class_slot(1, &r);
         assert!(!s.playable(), "paladin");
         s.pick_class_slot(0, &r);

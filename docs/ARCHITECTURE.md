@@ -1,0 +1,72 @@
+# Architecture
+
+Current dependency layout (2026-10-17): production crates are wow-souls, wow-world and wscl; the 12 engine crates are vendored in `vendor/benilla`. Optional DSR tools are standalone. Runtime data lives in `anim/source`, `data/world` and `data/voices`; no extraction cache or sibling research checkout is used. See `log/2026-10-17-wow-only-dependencies.md`. (moved verbatim out of HANDOVER.md on 2026-10-13; read on demand, or grep the module name)
+
+## Architecture
+
+Current dependency layout (2026-10-17): production crates are wow-souls, wow-world and wscl; the 12 engine crates are vendored in `vendor/benilla`. Optional DSR tools are standalone. Runtime data lives in `anim/source`, `data/world` and `data/voices`; no extraction cache or sibling research checkout is used. See `log/2026-10-17-wow-only-dependencies.md`. (crates/wow-souls/src)
+
+| Module | Role |
+|---|---|
+| `main.rs`, `boot.rs` | bootstrap in benilla worldview order; `WorldPlugins` + our plugins |
+| `run_mode.rs`, `check.rs`, `shot.rs` | unattended mode, fault gate, screenshot instrument |
+| `slice.rs` | anchor (Abbey doors, wow `-8913,-136,82`), kobold spot (`-8888,-132`) |
+| `settle.rs` | `Phase` Streaming→Playing; hold until `WorldLoadProgress::presentable()`; ground snap; `ViewFocus`/`Viewer` |
+| `loading.rs`, `hud.rs` | our own loading cover and one-line dev readout (ASCII only) |
+| `motor/` | benilla's kinematic mover ported (+48 of its tests); `MoveIntent` in, `Motor` state (velocity = achieved) |
+| `controller.rs` | camera-relative input → `MoveIntent`; facing; `PlaySet {Intent, Motor, Camera}` in `WorldStage::Input`; void-out |
+| `camera.rs` | Souls orbit cam: `cast_camera` sweep from head, snap in/ease out, smoothed pivot, recentre, `BodyFade`, lock tracking |
+| `freecam.rs` | F1 debug camera |
+| `avatar.rs` | player body entity (display 49 human male, look), capsule gizmo F2 |
+| `actor/` | `ActorModel` → skinned M2 (geosets, CharSections composite, palette rig, parts); a `ModelFrame` child of the body is the rig's `joints_root` and parent of the parts and hand anchors (identity unless the roll tumbles it); `anim.rs` gait FSM (Stand/Walk/Run/Jump*/Fall/Backpedal/Strafe) |
+| `npc.rs` | kobold display 365, 60 HP, `Hostile`, `Brain`/`Mind` AI (see step 5), `Home`, `Reaction {None, Flinch, Dead}`, kinematic `BodyCollider`; `react` plays CombatWound 9 / Death 1, on death removes `Lockable` + `Hurtbox` + `BodyCollider`; messages `PlayerHurt`, `Telegraph`; traces `trace_dead`, `trace_body`, `trace_swing` |
+| `hurt.rs` | player struck: stagger / death, YOU DIED, respawn, `Respawned` |
+| `hitbody.rs` | `BodyHits`: one capsule per skinning bone, fitted once per creature model from its `RenderSubmesh` positions/joints/weights (dominant bone, principal axis, radius covering 85 %), posed by `RigPalettes::world_palette` (the GPU's skinning rows); `strike` tests the swept blade against them, the feet capsule `Hurtbox` is the fallback; F2 draws them orange |
+| `lockon.rs` | `Lockable`, `LockOn`, pick/score/break, marker; target switching: `next_target`, `Flick`, `switch`, `WOWSOULS_LOCK_SWITCH` |
+| `combat/mod.rs` | `Health`, `Stamina`, the plugin and systems: `act` (PlaySet::Intent after `read_intent`) feeds `step_action` the presses (F / LMB / RB = `Press::Attack`, R / RMB / RT = `Press::Heavy`, Space / B = `Press::Evade`; scripted `_ATTACK` / `_HEAVY` / `_ROLL`), plays the procedural swing's WoW clip via `play_once` (a Dark Souls move poses the rig in `motion_clip`), overrides `MoveIntent` with the lunge (`root_step`: a Dark Souls move's root motion frame by frame, recoil included; the procedural swing's `LUNGE_SPEED` rule); `tumble` writes the somersault onto `ModelFrame` (`tumble_transform`); `anim::drive` yields while `Action::owns_body()` |
+| `combat/action.rs` | the pure action machine: `Action {state: Idle / Attack(Swing) / Evade(Evade) / Stagger / Dead, buffer}`, `SwingSpec {duration, hit, chain_from, evade_from, move_from, cost, mult}` (f4 chain, f26 evade, f11 movement cancel), `Moveset {r1[3], r2, roll_attack, ds}`, `MoveKind {R1(n), R2(n), RollAttack}`, `Press`, `step_action(a, stamina, StepInput, dt) -> Decision`, `next_move`, `start`; evades `ROLL`/`BACKSTEP` (`EvadeSpec`), `Action::invulnerable()`; the procedural swing is `SwingSpec::procedural(len)`, pinned to the old phase fractions by a test |
+| `hits.rs` | `Hurtbox` (vertical capsule), `Hit` message, `BladeTrail`; `strike` sweeps [tip marker, hand] prev->now in `SwingPhase::Active` (pure `segment_distance`, `blade_hits`); damage `hit_damage` = `LIGHT_DAMAGE` 20 x the move's `mult`; a swing's `serial` lets a chained or looped move strike again; `BLADE_RADIUS` 0.18; hit-stop via `Time<Virtual>` relative speed 0.05 for 0.07 s real; `flash_impacts` gizmo burst |
+| `hud/mod.rs` | the HUD plugin: dev line, help line, F3; loads `HudArt` at startup (`WOWSOULS_HUD=0` skips it), `UiScale = window height / 720` (the layout is 1280 x 720), `node_at(rect, Anchor)` places a layout rectangle from the left / right / centre edge, `sprite_node`, `clip_sprite`, `WOWSOULS_HUD_GAIN` |
+| `hud/art.rs` | `cache/dsr/hud/manifest.txt` as data (`Manifest`: dialogs, places, sprites, rects, gradients, texts, font), `check_sources`, `HudArt` (manifest + one `Handle<Image>` per PNG, read with the `png` crate), `REQUIRED_*` keys checked at load |
+| `hud/font.rs` | `layout` (pure: `pen + pre`, `pen += advance`, scale `size / font.size`, align) and `BitmapText` (children = one `ImageNode` with a page rectangle per glyph) |
+| `hud/bars.rs` | player bars: plate, `Chip` (the pale-yellow lost-value layer: holds, then drains), fill, ruler, end cap, the bar head and the skull; length = max x 3 layout px |
+| `hud/souls.rs` | `Souls` (what the player carries), `Counter` (the rolling count and the gain above it), the widget bottom right, `credit` (`Slain` -> souls) |
+| `hud/enemy.rs` | an enemy bar per struck creature (up to 8): `enemy_HP` sprites, name and damage run in the font, `Run`, `Chip`, projected over the head |
+| `hud/lock.rs`, `hud/banner.rs` | the lock-on ring (replaces the gizmo dot), YOU DIED (dim, band with soft edges, text, fade to black; `phase`, `ds_alpha`) |
+| `hud/plain.rs` | the old rectangle bars, only without `HudArt` |
+| `motion_clip.rs`, `rig_view.rs` | the DS roll and the six sword moves from `cache/dsr/` (manifest: version, `move` lines, `grip`; clips give `EvadeSpec` / `SwingSpec`, root motion `progress`, the `PosePost` pose with blends and a chained clip fading over the last one's end pose; the held sword's blade turned onto DS's blade axis while clips pose the body, `grip_rotation`); `WOWSOULS_RIG_VIEW=<clip>` side-by-side with the per-loop `blade error` line |
+| `monster.rs` | the kobold's Dark Souls kit from `cache/dsr/kobold/` (manifest `monster`/`attack`/`react`/`death`/`think`/`reach` lines): `MonsterClips` (six `AttackSpec`s with hit window, damage `atkPhys x DAMAGE_K` (K = 25/138), poise, level, radius; nine flinch clips with measured head push; two deaths), `MonsterPlay`/`MonsterFade` (the clip on the kobold's `RigPose` in `PosePost`, the player's blend code), `Poise`, `choose_react`/`choose_death` (the clip whose measured push points most like the blow's), `FoeRng`, `forced_move` |
+| `pattern.rs` | the kobold's pattern table (hand-made, the ghoul's Lua AI is not read): `wish` (a move while closing in), `choose` (start it once the player is in its band, else what fits), `follow_up` (small_1 -> small_2 40 %, small_2 -> big 30 %); bands in kobold yards, tuned live |
+| `foehit.rs` | `touches`: the kobold's hand volume (capsule from its right hand along its forearm, `REACH_LENGTH` 0.55 yd) swept against the player's hurtbox |
+| `blood.rs` | blood: `BloodTables`, `is_front` / `is_large`, `Spurt` roots on the victim's attachment 15 / 16 anchor, WoW's `BloodSpurt[Large].m2` emitters via `spawn_emitter`, reaper, `WOWSOULS_BLOOD=0` |
+| `reaction.rs` | the player's DS reactions: `PlayerReacts` from the cache (`preact` / `pdeath`), `LEVEL_CLASSES` / `class_for`, `choose` (by blow level and push), `choose_death`, `player_poise` |
+| `shove.rs` | knock-back: `Shove` component slid through `MoveIntent` (eased, 0.30 s, `knock` m x 1.0936), `start` (log line), `push_avatar`, `push_hostiles`, respawn clear |
+| `shake.rs` | camera shake: `Shake` trauma resource, `trauma_for(level, taken)`, `shake_offset`, applied in `camera::seat`; `WOWSOULS_SHAKE=0` |
+| `glide.rs` | (I1) inertia for the player's own walking: `follow` (pure: `ACCEL` 40, `BRAKE` 60 yd/s²), used by `controller::glide_intent`; `WOWSOULS_GLIDE=0` |
+| `lively.rs` | (I2) lean (acceleration / turn) and head look as additive rotations on spine, chest, neck, head after the clip layers; `Lively`, `lean_for`, `look_yaw`, `WOWSOULS_LIVELY` |
+| `behavior.rs`, `behavior/tests.rs` | 15 explicit family roles on all 47 roster entries; per-creature `State` phases, `step` decisions, existing-kit move preferences, fair local attack admission, group/escort facts and ground/LOS probes; integrated in `npc::think`. Mapping: `docs/ENEMY-AI-MAPPING.tsv`. No source-game Lua runtime. |
+| `footwork.rs` | shared temperament/opening helpers and existing boss footwork (`Temper`, `Foot`, `step` -> `Plan`, `world_motion`, `MAX_COMMITTED`); regular families use `behavior.rs`; `WOWSOULS_FOOTWORK=0` uses straight chase |
+| `boss.rs` | a boss's second phase (`phase_for`, `Phase::mods`, `Tempo` read by `npc::think` and `monster::advance`), Pierce Armor (`ArmorShred` resource, +8 % damage taken a stack, 3 stacks, 30 s), the `Engaged` cue the boss theme follows, `Roar`, slam shake, `music_playlist`, `WOWSOULS_BOSS_HP` |
+| `trial.rs` | `--trial-character <level> [slot]`: writes a level 6-12 save slot (the same text formats the game reads), never over an existing character |
+| `crates/wow-world` | (a library crate, not game code) Northshire from the vMaNGOS DB: `tsv`, `model`, `db`, `valley` (ADT area ids, `EXTRA_VALLEY_AREAS`), `select`, `manifest` (`wsworld 1`); bin `wow-souls-world import|areas|summary`; the game will read `data/world/elwynn-westfall.txt` through `manifest::parse` (G1) |
+| `world.rs`, `ring.rs`, `roam.rs` | (G1a) the manifest as `Book` / `WorldBook` of `Spot`s with a `Kind` (Foe by species name / Critter / Friendly / Unmapped); `ring_tick` (PreUpdate) spawns records inside 100 yd, despawns beyond 130, replaces killed ones after `max(600 s, x4 DB time)` only with the player 60+ yd away; `roam` is the pure walking rules (`Area::{Stand, Wander(r), Path(nodes)}`, `step`, `home_distance`); `npc::place` builds one creature; `SpawnId` links entity to record |
+| `bloodstain.rs` | (G4b) the death rule for souls: `Stain`, `die` / `near` / `recover` (pure), the `wssouls 1` save, `Bloodstain` resource, the systems `drop_on_death` / `pick_up` / `sync_mark` (disc + `LootFX` sparkles) / `save`, `WOWSOULS_SOULS_SCRIPT` |
+| `soulbind.rs`, `soulbind/art.rs` | graveyards from DB Spirit Healer spawn GUIDs; explicit Interact binding, atomic per-character `soulbind-v1.txt`, combat refusal, `BindRequest` / `SoulBound`, authored memorial stones; `avatar` restores a saved site and `hurt` holds respawn until its terrain and ground are ready |
+| `quests/soul_tutorial.rs` | runtime overlay quest 9000101, *Bind Your Soul*, from/to Falkhaan (6774); successful/saved binding credits memorial objective 9000101 through the existing quest engine; the imported inn quest 2158 is unchanged |
+| `level.rs` | (G4a) `vitals(level)` (HP 100 + 10 per level, stamina 100 + 5), `follow` (pure) and the system that applies `QuestGame.player.level` to the avatar's `Health` / `Stamina` maxima; kill XP itself is `wow_world::quest::xp` + `quests::credit_kills` |
+| `actor/held.rs` | `HeldItem` (ItemDisplayInfo → `Item\ObjectComponents\Weapon\` M2) on attachment 1 via `RigPose::anchor_for`; `HeldBuilt { root, blade: [$WTT, $WTB] }` in the item root's frame; `HandGrip` plays `hand_close[0]` at weight 8 |
+| `actor/mod.rs` `Dress` | (equipment) a character body's gear as display ids (`worn[10]`, `cloak`); `build` reads it like `NpcWorn`, redoes the parts when it changes (`DressParts`, `WornRoot`) |
+| `equip/mod.rs` | (equipment) `Appearance`, `appearance` / `wanted` / `dress_new` / `apply` (what the avatar shows), `Request` / `attempt` / `act` (rules on a copy of the save, then publish), `GearScreen`, `neighbor`, `candidates`, `tooltip`, `WearOverride`, the kit and the debug switches |
+| `equip/ui.rs` | (equipment) the character pane page: slots in 1.12's order with WoW's empty-slot art, the choice list, the tooltip panel, mouse / key / scripted input |
+| `crates/wow-world/src/equipment.rs` | (equipment, pure) `Slot`, `slots_for`, `Wearer`, `can_wear`, `Gear::{plan, best_slot}`, `Refusal`, `totals`, `start_kit`, the save lines |
+| `menu.rs` | the title and character flow before play: `Menu { screen, cursor, existing, sel, .. }`, the `Row` focus ring of the creation screen, `Press` / `MenuPress`, `Outcome::{Enter, Options, Create, Replace, Quit}`, `WOWSOULS_MENU_SCRIPT` |
+| `create/` | (menu part 1) WoW's character creation: `rules.rs` (pure `Rules`, `Selection`), `strings.rs` (GlueStrings.lua), `art.rs` (the glue sheets as sprites), `ui.rs` (the screen), `preview.rs` (the 3D body); `character.rs` has `Dials` and the `wschar 2` save |
+| `settings/` | (menu part 2) `Settings { sound, video, game, binds }` and `settings-v1.txt`; `binds.rs`: 31 `Action`s, `Chord`, two keys + one pad button, `Controls` / `MenuUp` (every input reader goes through it) |
+| `sysmenu/` | (menu part 3) `mod.rs` the pure model (`SysMenu`, `Page`, `Row`, `Kind`, capture), `ui.rs` the panel, the input, the pause, `WOWSOULS_SYSMENU_SCRIPT` |
+
+Engine facts worth remembering:
+- WoW coords: **+X north, +Y west**, +Z up. `wow_to_bevy([x,y,z]) = (-y, z, -x)`. Bevy forward −Z = WoW north. The Abbey is EAST of the anchor (lower Y).
+- Collision layers (benilla `CollisionLayer`, crate-private): bit0 Default, bit1 Walk (body only), bit2 Camera (camera only), bit3 Liquid. Avian dynamics are disabled: use spatial queries, not contacts.
+- Animation: Bevy `AnimationPlayer`/`AnimationTransitions` on the root; benilla poses from it. Clip lookup `ModelAnimations::find(anim_id)`. HumanMale has no roll clip. JumpStart (0.833 s) covers the whole 0.825 s running jump (by design).
+- Parts: `MeshTag(spawn_tag(slot, alpha))`, `RigPart(root)`, `ModelPart`, `part_interior_lit`.
+

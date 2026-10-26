@@ -10,6 +10,8 @@
 
 use std::io::{self, Read, Write};
 
+pub mod text;
+
 pub const MAGIC: [u8; 4] = *b"WSCL";
 pub const VERSION: u32 = 2;
 /// The `ChrActionFlag` value for invulnerability.

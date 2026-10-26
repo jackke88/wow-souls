@@ -172,7 +172,16 @@ pub struct Ctx<'a> {
     pub souls: u32,
     pub banked: u32,
     pub level: u32,
+    /// The character's class id: a trainer teaches only its own class.
+    pub class: u8,
     pub needed: &'a dyn Fn(u32) -> u32,
+}
+
+/// The class id of the character in play (a warrior without a quest game, as `level` is 1).
+fn class_of(game: Option<&QuestGame>) -> u8 {
+    game.map_or(wow_world::quest::Class::Warrior as u8, |g| {
+        g.player.class as u8
+    })
 }
 
 fn find(items: &[Item], entry: u32) -> Option<&Item> {
@@ -320,8 +329,16 @@ pub fn attempt(request: Request, c: &Ctx) -> Result<Done, Refused> {
             }
         }
         Request::Train(spell) => {
-            let ability =
-                abilities::find(spell).ok_or(Refused::Train(abilities::Refusal::NotYet))?;
+            // Only what this character's own trainer offers: a lesson of another class's trainer, or
+            // of another trainer, is a forgery.
+            let ability = teaches(c.npc, c.class)
+                .then(|| {
+                    abilities::trainer_list(c.npc)
+                        .into_iter()
+                        .find(|a| a.spell == spell)
+                })
+                .flatten()
+                .ok_or(Refused::Train(abilities::Refusal::NotYet))?;
             let cost = abilities::learn(&mut progress.abilities, &mut souls, ability, c.level)
                 .map_err(Refused::Train)?;
             format!("You have learned {} for {cost} souls.", ability.name)
@@ -412,6 +429,7 @@ pub fn current_lines(
             souls,
             banked,
             level: game.map_or(1, |g| g.player.level),
+            class: class_of(game),
             needed: &needed,
         },
     )
@@ -521,6 +539,7 @@ fn act(
             souls: souls.0,
             banked: bank.0,
             level: game.as_deref().map_or(1, |g| g.player.level),
+            class: class_of(game.as_deref()),
             needed: &needed,
         },
     );
@@ -587,13 +606,20 @@ pub fn plugin(app: &mut App) {
 }
 
 /// What an NPC offers besides quests: wares (the vendor flag and a stock row), the strongbox (a banker),
-/// lessons (the trainer flag and a list).
-pub fn services(data: Option<&Data>, flags: u32, entry: u32) -> Services {
+/// lessons (the trainer flag and a list of the character's own class: `class` is its WoW class id).
+pub fn services(data: Option<&Data>, flags: u32, entry: u32, class: u8) -> Services {
     Services {
         vendor: data.is_some_and(|d| flags & 4 != 0 && d.0.vendors.iter().any(|v| v.npc == entry)),
         banker: BANKERS.contains(&entry),
-        trainer: flags & 16 != 0 && !abilities::trainer_list(entry).is_empty(),
+        trainer: flags & 16 != 0 && teaches(entry, class),
     }
+}
+
+/// Whether `npc` teaches a character of `class`: the trainer of that class's own row, with a lesson
+/// to give.
+fn teaches(npc: u32, class: u8) -> bool {
+    wow_world::class::trainer_of(npc).is_some_and(|c| c.id == class)
+        && !abilities::trainer_list(npc).is_empty()
 }
 
 #[cfg(test)]
@@ -644,6 +670,7 @@ mod tests {
             souls,
             banked: 0,
             level: 1,
+            class: wow_world::quest::Class::Warrior as u8,
             needed,
         }
     }
@@ -670,8 +697,9 @@ mod tests {
         let rows = lines(Tab::Sell, &ctx(&[], &items, &p, &[1, 2, 3, 77], 0, &needed));
         // 3 is worth nothing, 77 is not carried.
         assert_eq!(rows.iter().map(|l| l.item).collect::<Vec<_>>(), vec![1, 2]);
-        assert_eq!((rows[0].count, rows[0].price), (1, 40));
-        assert_eq!((rows[1].count, rows[1].price), (15, 180));
+        // A sale pays a soul a copper ([`wow_world::shop::SELL_SOULS_PER_COPPER`]).
+        assert_eq!((rows[0].count, rows[0].price), (1, 10));
+        assert_eq!((rows[1].count, rows[1].price), (15, 45));
         let all_needed = |_: u32| 99;
         let rows = lines(Tab::Sell, &ctx(&[], &items, &p, &[1], 0, &all_needed));
         assert_eq!((rows[0].count, rows[0].price), (0, 0));
@@ -689,8 +717,8 @@ mod tests {
         assert_eq!(bought.message, "Bought Item 1 for 240 souls.");
         let c2 = ctx(&[], &items, &bought.progress, &[1], 60, &none);
         let sold = attempt(Request::Sell(1), &c2).unwrap();
-        assert_eq!((sold.souls, sold.progress.inventory.count(1)), (108, 0));
-        assert_eq!(sold.message, "Sold Item 1 for 48 souls.");
+        assert_eq!((sold.souls, sold.progress.inventory.count(1)), (72, 0));
+        assert_eq!(sold.message, "Sold Item 1 for 12 souls.");
         assert_eq!(p.inventory.count(1), 0, "the old pack is untouched");
         let poor = ctx(&[], &items, &p, &[], 10, &none);
         assert_eq!(
@@ -747,6 +775,73 @@ mod tests {
             attempt(Request::Train(6673), &c2).unwrap_err(),
             Refused::Train(abilities::Refusal::Known)
         );
+    }
+
+    #[test]
+    fn a_trainer_teaches_only_its_own_class() {
+        // Llane Beshere (911, warrior) and Khelden Bremen (198, mage); npc flag 16 is the trainer bit.
+        let warrior = wow_world::quest::Class::Warrior as u8;
+        let mage = wow_world::quest::Class::Mage as u8;
+        assert!(services(None, 19, 911, warrior).trainer);
+        assert!(
+            !services(None, 19, 911, mage).trainer,
+            "a mage is not taught by the warrior trainer"
+        );
+        assert!(services(None, 19, 198, mage).trainer);
+        assert!(
+            !services(None, 19, 198, warrior).trainer,
+            "nor a warrior by the mage trainer"
+        );
+        assert!(
+            !services(None, 19, 152, mage).trainer,
+            "a trainer with no class row teaches nothing"
+        );
+        assert!(
+            !services(None, 3, 198, mage).trainer,
+            "no trainer flag, no lessons"
+        );
+    }
+
+    #[test]
+    fn a_forged_lesson_of_another_trainer_is_refused() {
+        let items: Vec<Item> = Vec::new();
+        let p = Progress::default();
+        let none = |_| 0;
+        let mut c = ctx(&[], &items, &p, &[], 5000, &none);
+        c.level = 9;
+        c.npc = abilities::WARRIOR_TRAINER;
+        // Frostbolt is the mage trainer's, not Llane Beshere's.
+        assert_eq!(
+            attempt(Request::Train(116), &c).unwrap_err(),
+            Refused::Train(abilities::Refusal::NotYet)
+        );
+        c.npc = 198;
+        c.class = wow_world::quest::Class::Mage as u8;
+        let done = attempt(Request::Train(116), &c).unwrap();
+        assert!(done.progress.abilities.contains(&116));
+    }
+
+    #[test]
+    fn a_warrior_is_not_taught_by_the_mage_trainer_whoever_asks() {
+        let items: Vec<Item> = Vec::new();
+        let p = Progress::default();
+        let none = |_| 0;
+        let mut c = ctx(&[], &items, &p, &[], 5000, &none);
+        c.level = 9;
+        // Khelden Bremen (198) teaches mages; the character is a warrior.
+        c.npc = 198;
+        assert_eq!(c.class, wow_world::quest::Class::Warrior as u8);
+        assert_eq!(
+            attempt(Request::Train(116), &c).unwrap_err(),
+            Refused::Train(abilities::Refusal::NotYet),
+            "a forged lesson of the mage's own trainer, asked by a warrior"
+        );
+        assert!(
+            !attempt(Request::Train(116), &c).is_ok_and(|d| d.progress.abilities.contains(&116)),
+            "nothing is learned"
+        );
+        c.class = wow_world::quest::Class::Mage as u8;
+        assert!(attempt(Request::Train(116), &c).is_ok());
     }
 
     #[test]

@@ -1,15 +1,19 @@
 [package]
 name = "dsr-formats"
-version.workspace = true
-edition.workspace = true
+version = "0.1.0"
+edition = "2021"
 # Ported from GPL-3.0 sources (SoulsFormatsNEXT, SoulsAssetPipeline, HavokLib): see
 # docs/PROVENANCE.md. The game crate never links this crate.
 license = "GPL-3.0-or-later"
 description = "Readers for Dark Souls Remastered data: DCX, BND3, TAE, Havok 2015 tagfiles"
 
-[lints]
-workspace = true
+[workspace]
+resolver = "2"
+
+[lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"
 
 [dependencies]
-anyhow.workspace = true
-flate2.workspace = true
+anyhow = "1.0.102"
+flate2 = "1.1"

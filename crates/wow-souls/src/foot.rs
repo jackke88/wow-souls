@@ -72,15 +72,15 @@ fn fire(
         &AnimationPlayer,
         &Locomotion,
         &GlobalTransform,
-        Option<&crate::dsloco::DsGait>,
+        Option<&crate::locomotion::GaitState>,
     )>,
     mut last: Local<HashMap<Entity, (AnimationNodeIndex, f32)>>,
     mut out: MessageWriter<AnimSound>,
 ) {
-    for (entity, anims, player, loco, world, ds_gait) in &actors {
-        // The Dark Souls gait posing the legs sounds its own foot-downs ([`crate::dsloco`]); the
+    for (entity, anims, player, loco, world, project_gait) in &actors {
+        // The Dark Souls gait posing the legs sounds its own foot-downs ([`crate::locomotion`]); the
         // WoW clip underneath runs at another stride and would step out of time with them.
-        if ds_gait.is_some_and(crate::dsloco::DsGait::owns_steps) {
+        if project_gait.is_some_and(crate::locomotion::GaitState::owns_steps) {
             last.remove(&entity);
             continue;
         }
@@ -121,17 +121,25 @@ pub fn is_footstep(ident: &[u8; 4]) -> bool {
 }
 
 /// The step of each foot-plant: the kit for this creature class on the ground under the foot.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn footsteps(
+    mut commands: Commands,
     mut events: MessageReader<AnimSound>,
     audio: Option<ResMut<Audio>>,
     world: WorldPoint,
+    collide: benilla_world::collision::WorldCollision,
+    (wetness, shelter, spray): (
+        Option<Res<benilla_world::weather::Wetness>>,
+        Option<Res<benilla_world::weather::shelter::ShelterGrid>>,
+        Option<Res<crate::puddle::Spray>>,
+    ),
     cams: Query<&GlobalTransform, With<WorldCamera>>,
     bodies: Query<(
         &ActorModel,
         &GlobalTransform,
         Option<&Avatar>,
         Option<&Action>,
+        Option<&crate::motor::Motor>,
     )>,
 ) {
     let Some(mut audio) = audio else {
@@ -144,7 +152,7 @@ fn footsteps(
         if !is_footstep(&ev.ident) || played >= STEPS_PER_FRAME {
             continue;
         }
-        let Ok((model, xf, avatar, action)) = bodies.get(ev.entity) else {
+        let Ok((model, xf, avatar, action, motor)) = bodies.get(ev.entity) else {
             continue;
         };
         // A roll or a swing poses the body itself; the gait clip under it makes no steps.
@@ -177,10 +185,25 @@ fn footsteps(
         let Some((dry, splash)) = audio.footsteps().resolve_terrain(class, terrain) else {
             continue;
         };
-        let kit = match depth {
-            Some(_) if splash != 0 => splash,
-            _ => dry,
-        };
+        // A rain puddle under the foot ([`crate::puddle`]) splashes as shallow water does.
+        let wetted = crate::puddle::under(&collide, wetness.as_deref(), shelter.as_deref(), feet);
+        if avatar.is_some() {
+            trace!(
+                "foot: puddle {wetted:.2} (wetness {:?})",
+                wetness.as_deref().map(|w| w.wetness)
+            );
+        }
+        let puddle = depth.is_none() && wetted > crate::puddle::SPLASH_FROM;
+        let wet = depth.is_some() || puddle;
+        let kit = if wet && splash != 0 { splash } else { dry };
+        // WoW's footstep spray where the foot meets the water: the surface when wading, the ground in a
+        // puddle.
+        if let (true, Some(spray)) = (wet, spray.as_deref()) {
+            let at = Vec3::new(ev.at.x, feet.y + depth.unwrap_or(0.0), ev.at.z);
+            let speed = motor.map_or(7.0, |m| m.velocity.xz().length());
+            crate::puddle::spray(&mut commands, spray, at, speed, xf.rotation());
+            debug!("foot: splash at {at:?} (puddle {puddle}, kit {kit})");
+        }
         if kit == 0 {
             continue;
         }

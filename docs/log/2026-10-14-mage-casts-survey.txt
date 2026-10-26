@@ -1,0 +1,99 @@
+a00_6200 91:[0.17-1.90] 90:[] 89:[]  no release window, len 0.50
+a00_6201 91:[0.33-0.73] 90:[0.73-1.20] 89:[1.20-1.73]  OK len 1.33 release 0.73 recover 1.20
+a00_6202 91:[] 90:[] 89:[]  no release window, len 1.00
+a00_6203 91:[] 90:[] 89:[]  no release window, len 1.83
+a00_6204 91:[0.20-0.60] 90:[0.60-1.33] 89:[]  OK len 1.00 release 0.60 recover 1.00
+a00_6205 91:[0.23-0.77] 90:[0.77-1.23] 89:[1.23-1.73]  OK len 1.50 release 0.77 recover 1.23
+a00_6206 91:[] 90:[] 89:[]  no release window, len 1.83
+a00_6207 91:[0.00-0.13] 90:[0.13-0.47] 89:[0.47-0.97]  OK len 0.50 release 0.13 recover 0.47
+a00_6208 91:[0.23-0.77] 90:[0.77-2.77] 89:[]  OK len 1.33 release 0.77 recover 1.33
+a00_6209 91:[0.33-0.70] 90:[0.70-1.33] 89:[1.33-1.90]  OK len 1.67 release 0.70 recover 1.33
+a00_6210 91:[0.00-0.70] 90:[0.70-2.00] 89:[]  OK len 1.50 release 0.70 recover 1.50
+a00_6211 91:[] 90:[] 89:[]  no release window, len 0.33
+a00_6212 91:[] 90:[] 89:[]  no release window, len 2.00
+a00_6213 91:[0.33-1.03] 90:[1.03-1.53] 89:[]  OK len 1.27 release 1.03 recover 1.27
+a00_6214 91:[0.13-0.53] 90:[0.53-1.73] 89:[]  OK len 1.33 release 0.53 recover 1.33
+a00_6215 91:[0.00-0.60] 90:[0.60-1.37] 89:[1.37-2.03]  OK len 1.83 release 0.60 recover 1.37
+a00_6216 91:[] 90:[] 89:[]  no release window, len 0.67
+a00_6217 91:[0.20-0.70] 90:[0.70-1.47] 89:[]  OK len 1.33 release 0.70 recover 1.33
+a00_6218 91:[0.33-0.93] 90:[0.93-1.93] 89:[]  OK len 1.67 release 0.93 recover 1.67
+a00_6219 91:[0.00-0.30] 90:[0.30-0.80] 89:[0.80-1.93]  OK len 1.33 release 0.30 recover 0.80
+a00_6220 91:[] 90:[] 89:[]  no release window, len 1.83
+a00_6221 91:[] 90:[] 89:[]  no release window, len 8.10
+a00_6222 91:[0.00-0.17] 90:[] 89:[0.17-0.83]  no release window, len 0.33
+a00_6224 91:[0.27-0.83] 90:[0.83-1.47] 89:[1.47-1.90]  OK len 1.67 release 0.83 recover 1.47
+a00_6225 91:[0.00-0.27] 90:[0.27-1.90] 89:[]  OK len 0.67 release 0.27 recover 0.67
+a00_6226 91:[0.00-0.43] 90:[0.43-1.90] 89:[]  OK len 0.67 release 0.43 recover 0.67
+a00_6300 91:[0.17-1.90] 90:[] 89:[]  no release window, len 0.50
+a00_6302 91:[] 90:[] 89:[]  no release window, len 1.00
+a00_6303 91:[] 90:[] 89:[]  no release window, len 1.83
+a00_6304 91:[0.20-0.60] 90:[0.60-1.33] 89:[]  OK len 1.00 release 0.60 recover 1.00
+a00_6305 91:[0.23-0.77] 90:[0.77-1.23] 89:[1.23-1.73]  OK len 1.50 release 0.77 recover 1.23
+a00_6306 91:[] 90:[] 89:[]  no release window, len 1.83
+a00_6307 91:[0.00-0.13] 90:[0.13-0.47] 89:[0.47-0.97]  OK len 0.50 release 0.13 recover 0.47
+a00_6308 91:[0.23-0.77] 90:[0.77-2.77] 89:[]  OK len 1.33 release 0.77 recover 1.33
+a00_6309 91:[0.33-0.70] 90:[0.70-1.33] 89:[1.33-1.90]  OK len 1.67 release 0.70 recover 1.33
+a00_6310 91:[0.00-0.70] 90:[0.70-2.00] 89:[]  OK len 1.33 release 0.70 recover 1.33
+a00_6311 91:[] 90:[] 89:[]  no release window, len 0.33
+a00_6312 91:[] 90:[] 89:[]  no release window, len 2.00
+a00_6313 91:[0.33-1.03] 90:[1.03-1.53] 89:[]  OK len 1.27 release 1.03 recover 1.27
+a00_6314 91:[] 90:[] 89:[]  no release window, len 0.67
+a00_6315 91:[0.00-0.60] 90:[0.60-1.37] 89:[1.37-2.03]  OK len 1.83 release 0.60 recover 1.37
+a00_6316 91:[0.17-0.67] 90:[0.67-1.73] 89:[]  OK len 1.17 release 0.67 recover 1.17
+a00_6317 91:[0.20-0.70] 90:[0.70-1.47] 89:[]  OK len 1.33 release 0.70 recover 1.33
+a00_6318 91:[0.33-0.93] 90:[0.93-1.93] 89:[]  OK len 1.67 release 0.93 recover 1.67
+a00_6319 91:[0.00-0.30] 90:[0.30-0.80] 89:[0.80-1.93]  OK len 1.33 release 0.30 recover 0.80
+a00_6320 91:[] 90:[] 89:[]  no release window, len 1.83
+a00_6322 91:[0.00-0.17] 90:[] 89:[0.17-0.83]  no release window, len 0.33
+a00_6324 91:[0.27-0.83] 90:[0.83-1.47] 89:[1.47-1.90]  OK len 1.67 release 0.83 recover 1.47
+a00_6325 91:[0.00-0.27] 90:[0.27-1.90] 89:[]  OK len 0.67 release 0.27 recover 0.67
+a00_6326 91:[0.00-0.43] 90:[0.43-1.90] 89:[]  OK len 0.67 release 0.43 recover 0.67
+a00_6400 91:[] 90:[1.37-1.70] 89:[0.00-1.37]  no release window, len 1.50
+a00_6401 91:[] 90:[] 89:[0.00-2.13]  no release window, len 2.00
+a00_6402 91:[] 90:[] 89:[]  no release window, len 1.67
+a00_6403 91:[] 90:[] 89:[]  no release window, len 3.00
+a00_6404 91:[] 90:[] 89:[0.00-2.00]  no release window, len 1.83
+a00_6405 91:[] 90:[] 89:[]  no release window, len 2.00
+a00_6406 91:[] 90:[] 89:[]  no release window, len 1.63
+a00_6407 91:[] 90:[] 89:[]  no release window, len 1.67
+a00_6408 91:[] 90:[] 89:[0.00-2.30]  no release window, len 1.83
+a00_6409 91:[] 90:[] 89:[]  no release window, len 4.33
+a00_6410 91:[] 90:[] 89:[0.00-2.77]  no release window, len 2.33
+a00_6411 91:[] 90:[] 89:[]  no release window, len 1.67
+a00_6412 91:[] 90:[] 89:[]  no release window, len 2.17
+a00_6413 91:[] 90:[0.00-0.47] 89:[]  OK len 1.00 release 0.00 recover 1.00
+a00_6414 91:[] 90:[] 89:[0.00-2.50]  no release window, len 2.33
+a00_6415 91:[] 90:[] 89:[0.00-3.87]  no release window, len 3.43
+a00_6416 91:[] 90:[] 89:[]  no release window, len 2.00
+a00_6417 91:[] 90:[0.00-0.13] 89:[0.13-2.47]  OK len 2.00 release 0.00 recover 0.13
+a00_6418 91:[] 90:[] 89:[0.00-2.27]  no release window, len 1.90
+a00_6419 91:[] 90:[] 89:[0.00-2.07]  no release window, len 1.67
+a00_6420 91:[] 90:[] 89:[]  no release window, len 3.00
+a00_6422 91:[] 90:[] 89:[0.00-1.73]  no release window, len 1.50
+a00_6424 91:[] 90:[1.37-1.70] 89:[0.00-1.37]  no release window, len 1.50
+a00_6425 91:[] 90:[0.00-2.07] 89:[]  OK len 0.33 release 0.00 recover 0.33
+a00_6426 91:[] 90:[] 89:[0.00-3.33]  no release window, len 2.33
+a00_6500 91:[] 90:[1.37-1.70] 89:[0.00-1.37]  no release window, len 1.50
+a00_6502 91:[] 90:[] 89:[]  no release window, len 1.67
+a00_6503 91:[] 90:[] 89:[]  no release window, len 3.00
+a00_6504 91:[] 90:[] 89:[0.00-2.00]  no release window, len 1.83
+a00_6505 91:[] 90:[] 89:[]  no release window, len 2.00
+a00_6506 91:[] 90:[] 89:[]  no release window, len 1.63
+a00_6507 91:[] 90:[] 89:[]  no release window, len 1.67
+a00_6508 91:[] 90:[] 89:[0.00-2.30]  no release window, len 1.83
+a00_6509 91:[] 90:[] 89:[]  no release window, len 4.33
+a00_6510 91:[] 90:[] 89:[0.00-2.87]  no release window, len 2.40
+a00_6511 91:[] 90:[] 89:[]  no release window, len 1.67
+a00_6512 91:[] 90:[] 89:[]  no release window, len 2.17
+a00_6513 91:[] 90:[0.00-0.47] 89:[]  OK len 1.00 release 0.00 recover 1.00
+a00_6514 91:[] 90:[] 89:[]  no release window, len 1.67
+a00_6515 91:[] 90:[] 89:[0.00-3.87]  no release window, len 3.43
+a00_6516 91:[] 90:[] 89:[0.00-2.50]  no release window, len 2.33
+a00_6517 91:[] 90:[0.00-0.13] 89:[0.13-2.47]  OK len 2.00 release 0.00 recover 0.13
+a00_6518 91:[] 90:[] 89:[0.00-2.27]  no release window, len 1.90
+a00_6519 91:[] 90:[] 89:[0.00-2.07]  no release window, len 1.67
+a00_6520 91:[] 90:[] 89:[]  no release window, len 3.00
+a00_6522 91:[] 90:[] 89:[0.00-1.73]  no release window, len 1.50
+a00_6524 91:[] 90:[1.37-1.70] 89:[0.00-1.37]  no release window, len 1.50
+a00_6525 91:[] 90:[0.00-2.07] 89:[]  OK len 0.33 release 0.00 recover 0.33
+a00_6526 91:[] 90:[] 89:[0.00-3.33]  no release window, len 2.33

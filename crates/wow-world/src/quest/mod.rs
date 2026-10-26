@@ -53,6 +53,23 @@ impl Class {
         1 << (self as u32 - 1)
     }
 
+    /// The class with this `ChrClasses` id.
+    pub fn from_id(id: u8) -> Option<Class> {
+        [
+            Class::Warrior,
+            Class::Paladin,
+            Class::Hunter,
+            Class::Rogue,
+            Class::Priest,
+            Class::Shaman,
+            Class::Mage,
+            Class::Warlock,
+            Class::Druid,
+        ]
+        .into_iter()
+        .find(|c| *c as u8 == id)
+    }
+
     /// The class word of the quest texts (`$C`; `$c` is the same in lower case).
     pub fn name(self) -> &'static str {
         match self {
@@ -106,6 +123,17 @@ impl Player {
             name: name.to_string(),
             male: true,
             class: Class::Warrior,
+            race: Race::Human,
+            level,
+        }
+    }
+
+    /// A Human male of `class` (the game plays only humans, male).
+    pub fn of_class(name: &str, class: Class, level: u32) -> Player {
+        Player {
+            name: name.to_string(),
+            male: true,
+            class,
             race: Race::Human,
             level,
         }
@@ -184,11 +212,32 @@ pub(crate) mod testing {
     }
 
     pub fn real_world() -> Option<World> {
-        let path = crate::default_manifest_path();
+        // These are Northshire report vectors, independent of the active gameplay zone.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../cache/world/northshire.txt");
         let Ok(text) = std::fs::read_to_string(&path) else {
             eprintln!("skipped: no manifest at {}", path.display());
             return None;
         };
         Some(crate::manifest::parse(&text).unwrap())
+    }
+}
+
+#[cfg(test)]
+mod class_tests {
+    use super::*;
+
+    #[test]
+    fn a_class_id_names_its_class_and_the_player_carries_it() {
+        assert_eq!(Class::from_id(1), Some(Class::Warrior));
+        assert_eq!(Class::from_id(8), Some(Class::Mage));
+        assert_eq!(Class::from_id(6), None, "6 is not a 1.12 class");
+        let p = Player::of_class("Merlin", Class::Mage, 3);
+        assert_eq!(
+            (p.class, p.race, p.male, p.level),
+            (Class::Mage, Race::Human, true, 3)
+        );
+        assert_eq!(p.class as u32, 8, "the class tables are keyed by this id");
+        assert_eq!(Player::warrior("Jacob", 1).class, Class::Warrior);
     }
 }

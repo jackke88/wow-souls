@@ -57,6 +57,33 @@ pub fn pick_display(displays: &[u32], guid: u32) -> Option<u32> {
     (!shown.is_empty()).then(|| shown[guid as usize % shown.len()])
 }
 
+/// Imported probabilities apply to matching display slots; old manifests retain equal choice.
+pub fn pick_weighted_display(displays: &[u32], weights: &[u32], guid: u32) -> Option<u32> {
+    if displays.len() != weights.len() || weights.iter().all(|w| *w == 0) {
+        return pick_display(displays, guid);
+    }
+    let total: u64 = displays
+        .iter()
+        .zip(weights)
+        .filter(|(d, _)| **d != 0)
+        .map(|(_, w)| u64::from(*w))
+        .sum();
+    if total == 0 {
+        return None;
+    }
+    let mut choice = u64::from(guid.wrapping_mul(0x9e37_79b9).rotate_left(13)) % total;
+    for (&display, &weight) in displays.iter().zip(weights) {
+        if display == 0 {
+            continue;
+        }
+        if choice < u64::from(weight) {
+            return Some(display);
+        }
+        choice -= u64::from(weight);
+    }
+    None
+}
+
 /// Its walk speed (yd/s): WoW's walk times the template's multiplier, never a crawl.
 pub fn walk_speed(speed_walk: f32) -> f32 {
     (crate::motor::WALK_SPEED * speed_walk).max(0.8)
@@ -90,7 +117,8 @@ pub(crate) fn place(
     collide: &WorldCollision,
     epoch: &mut ColliderEpoch,
 ) -> Result<Placed, Unplaced> {
-    let shown = pick_display(&t.displays, spot.guid).ok_or(Unplaced::NoModel(0))?;
+    let shown = pick_weighted_display(&t.displays, &t.display_weights, spot.guid)
+        .ok_or(Unplaced::NoModel(0))?;
     let Some(model) = ActorModel::for_display(&catalogs.creatures, shown, None, asset_server)
     else {
         warn!("friendly: display {shown} has no model");
@@ -225,6 +253,25 @@ mod tests {
     }
 
     #[test]
+    fn weighted_displays_keep_zero_probability_variants_out() {
+        for guid in 1..100 {
+            assert_eq!(
+                pick_weighted_display(&[100, 200], &[0, 100], guid),
+                Some(200)
+            );
+            assert_eq!(
+                pick_weighted_display(&[100, 200], &[100, 0], guid),
+                Some(100)
+            );
+            assert_eq!(
+                pick_weighted_display(&[100, 200], &[0, 0], guid),
+                pick_display(&[100, 200], guid)
+            );
+        }
+        assert_eq!(pick_weighted_display(&[0, 200], &[100, 0], 1), None);
+    }
+
+    #[test]
     fn walk_speeds_follow_the_template() {
         assert!((walk_speed(1.0) - 2.5).abs() < 1e-6, "a guard");
         assert!((walk_speed(0.666_668) - 1.666_67).abs() < 1e-3, "a peasant");
@@ -239,7 +286,7 @@ mod tests {
     #[test]
     fn install_every_friendly_and_critter_display_resolves() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../cache/world/northshire.txt");
+            .join("../../data/world/northshire.txt");
         let Ok(text) = std::fs::read_to_string(&path) else {
             eprintln!("skipped: {} not found", path.display());
             return;

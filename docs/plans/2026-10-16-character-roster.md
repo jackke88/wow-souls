@@ -1,0 +1,5 @@
+# Character selector and UI refinement
+
+User: continue the Elden Ring reference UI, improve UX/UI, especially the current character selector. Claude is working on animations concurrently. Keep changes to UI, menu state/presentation and the UI preview; preserve all animation work and saves. No commits.
+
+Build a bounded six-row character list with persistent focus, name/class/race/real level, a separate preview and profile, a clear Enter World action, and separate New Character/Settings/Quit actions. Mouse selects a character before Play; Enter/A remains the shortcut. Keyboard/pad and mouse wheel reach all ten slots. Display the focused saved character's actual appearance rather than the active avatar. Read XP and equipment without writing saves. Keep deletion confirmation and backup behavior. Add navigation/focus tests and verify single/multiple/full rosters, Mage/Warrior switching, creation, settings, 720p/1080p/ultrawide and existing material HUD/screens. Improve panel text contrast while retaining worn textures and soft edges. Run scoped fmt, workspace Clippy and install-enabled tests. Build to a separate output to avoid the shared executable's Windows lock.

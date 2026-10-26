@@ -1,4 +1,4 @@
-//! The creation screen's 3D body: the chosen race, sex, look and starting outfit, standing where the
+//! The menu's 3D body: the chosen race, sex, look and starting or saved outfit, standing where the
 //! avatar stands and turned by the screen's yaw, framed by the body's height.
 //!
 //! A new race or sex is another model, so the next body is spawned hidden and swapped in when its
@@ -39,6 +39,9 @@ struct Key {
     sex: u8,
     class: u8,
     dials: [u8; 5],
+    gear: Option<([u32; 10], u32)>,
+    main: Option<(u32, bool)>,
+    off: Option<(u32, bool)>,
 }
 
 impl Key {
@@ -48,12 +51,20 @@ impl Key {
             sex: sel.sex,
             class: sel.class,
             dials: sel.dials,
+            gear: None,
+            main: None,
+            off: None,
         }
     }
 
     /// The model: another race or sex is another file.
     fn body(self) -> (u8, u8) {
         (self.race, self.sex)
+    }
+
+    /// Held items are attached once while the actor is built; replace the actor if they change.
+    fn reusable(self, other: Self) -> bool {
+        self.body() == other.body() && self.main == other.main && self.off == other.off
     }
 
     fn look(self) -> CharLook {
@@ -66,6 +77,14 @@ impl Key {
             hair_color: self.dials[3],
             facial_hair: self.dials[4],
         }
+    }
+
+    fn dress(self, data: &CreateData) -> Dress {
+        self.gear
+            .map(|(worn, cloak)| Dress { worn, cloak })
+            .unwrap_or_else(|| {
+                outfit_dress(data.catalog.start_outfit(self.race, self.class, self.sex))
+            })
     }
 }
 
@@ -145,19 +164,28 @@ fn spawn(
 ) -> Option<Entity> {
     let display = data.catalog.body_display(key.race, key.sex)?;
     let model = ActorModel::for_display(&catalogs.creatures, display, Some(key.look()), assets)?;
-    let dress = outfit_dress(data.catalog.start_outfit(key.race, key.class, key.sex));
-    Some(
-        commands
-            .spawn((
-                Name::new("Creation preview"),
-                Preview,
-                Transform::from_translation(at.translation).with_rotation(at.rotation),
-                Visibility::Hidden,
-                model,
-                dress,
-            ))
-            .id(),
-    )
+    let dress = key.dress(data);
+    let entity = commands
+        .spawn((
+            Name::new("Creation preview"),
+            Preview,
+            Transform::from_translation(at.translation).with_rotation(at.rotation),
+            Visibility::Hidden,
+            model,
+            dress.clone(),
+        ))
+        .id();
+    crate::equip::dress_new(
+        commands,
+        entity,
+        &crate::equip::Appearance {
+            dress,
+            main: key.main.map(|(display, _)| display),
+            left_main: key.main.is_some_and(|(_, left)| left),
+            off: key.off,
+        },
+    );
+    Some(entity)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -173,8 +201,12 @@ fn drive(
     mut stage: ResMut<Stage>,
     mut hide: ResMut<HideAvatar>,
     mut failed: Local<Option<Key>>,
+    summaries: Option<Res<crate::menu::roster::Summaries>>,
+    items: Option<Res<crate::loot::Data>>,
 ) {
-    let on = menu.as_ref().is_some_and(|m| m.screen == Screen::Create);
+    let on = menu
+        .as_ref()
+        .is_some_and(|m| m.screen == Screen::Create || crate::hud::theme::enabled());
     if !on {
         for (e, _) in stage.shown.take().into_iter().chain(stage.pending.take()) {
             commands.entity(e).despawn();
@@ -186,7 +218,22 @@ fn drive(
     else {
         return;
     };
-    let want = Key::of(&menu.sel);
+    let mut want = Key::of(&menu.preview_selection());
+    if menu.screen == Screen::Main {
+        if let (Some(slot), Some(summaries), Some(items)) = (menu.shown_slot(), summaries, items) {
+            if let Some(progress) = summaries
+                .0
+                .get(&slot.id)
+                .and_then(|s| s.progress.as_ref())
+                .filter(|p| p.kit_given)
+            {
+                let appearance = crate::equip::appearance(&progress.gear, &items.0.items);
+                want.gear = Some((appearance.dress.worn, appearance.dress.cloak));
+                want.main = appearance.main.map(|d| (d, appearance.left_main));
+                want.off = appearance.off;
+            }
+        }
+    }
 
     // A body that finished building takes the stage.
     if let Some((e, key)) = stage.pending {
@@ -207,7 +254,7 @@ fn drive(
          key: Key| {
             if let Ok((mut model, mut dress, _)) = bodies.get_mut(entity) {
                 model.look = Look::Character(key.look());
-                *dress = outfit_dress(data.catalog.start_outfit(key.race, key.class, key.sex));
+                *dress = key.dress(&data);
             }
         };
 
@@ -217,7 +264,7 @@ fn drive(
                 commands.entity(stale).despawn();
             }
         }
-        Some((e, key)) if key.body() == want.body() => {
+        Some((e, key)) if key.reusable(want) => {
             redress(&mut bodies, e, want);
             stage.shown = Some((e, want));
             if let Some((stale, _)) = stage.pending.take() {
@@ -225,7 +272,7 @@ fn drive(
             }
         }
         _ => match stage.pending {
-            Some((e, key)) if key.body() == want.body() => {
+            Some((e, key)) if key.reusable(want) => {
                 if key != want {
                     redress(&mut bodies, e, want);
                     stage.pending = Some((e, want));
@@ -264,7 +311,7 @@ fn place(
     let (Some(menu), Ok(at)) = (menu, avatar.single()) else {
         return;
     };
-    let rotation = at.rotation * Quat::from_rotation_y(menu.sel.yaw);
+    let rotation = at.rotation * Quat::from_rotation_y(menu.preview_selection().yaw);
     for mut xf in &mut bodies {
         if xf.translation != at.translation {
             xf.translation = at.translation;
@@ -283,7 +330,7 @@ fn camera(
     mut cam: Query<&mut Transform, With<WorldCamera>>,
 ) {
     let Some(menu) = menu else { return };
-    if menu.screen != Screen::Create {
+    if menu.screen != Screen::Create && !crate::hud::theme::enabled() {
         return;
     }
     let (Ok(body), Ok(mut cam)) = (avatar.single(), cam.single_mut()) else {
@@ -391,6 +438,9 @@ mod tests {
             sex: 1,
             class: 4,
             dials: [1, 2, 3, 4, 5],
+            gear: None,
+            main: None,
+            off: None,
         };
         assert_eq!(a.body(), (2, 1));
         let look = a.look();
@@ -407,6 +457,18 @@ mod tests {
         );
         let b = Key { class: 1, ..a };
         assert_eq!(a.body(), b.body());
+        assert!(
+            a.reusable(b),
+            "changing class can redress the same bare body"
+        );
+        assert!(!a.reusable(Key {
+            main: Some((1542, false)),
+            ..a
+        }));
+        assert!(!a.reusable(Key {
+            off: Some((18730, true)),
+            ..a
+        }));
         assert_ne!(a, b);
     }
 }

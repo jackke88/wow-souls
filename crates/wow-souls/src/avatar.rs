@@ -56,7 +56,7 @@ pub fn plugin(app: &mut App) {
     .insert_resource(ShowCapsule(
         std::env::var_os("WOWSOULS_SHOW_BODY").is_some(),
     ))
-    .add_systems(Startup, spawn)
+    .add_systems(Startup, spawn.after(crate::soulbind::load))
     .add_systems(Update, (dress, toggle_capsule, draw_body, hide_when_close))
     .add_systems(OnEnter(Phase::Playing), apply_chosen_look);
 }
@@ -203,11 +203,16 @@ fn hide_when_close(
     }
 }
 
-fn spawn(mut commands: Commands) {
+fn spawn(mut commands: Commands, binding: Res<crate::soulbind::Binding>) {
+    let site = binding
+        .site()
+        .filter(|_| std::env::var_os("WOWSOULS_AT").is_none());
+    let position = site.map_or_else(|| wow_to_bevy(slice::anchor()), |s| s.arrival());
+    let rotation = site.map_or_else(|| Quat::from_rotation_y(slice::start_yaw()), |s| s.facing());
     commands.spawn((
         Name::new("Avatar"),
         Avatar,
-        Transform::from_translation(wow_to_bevy(slice::anchor())),
+        Transform::from_translation(position).with_rotation(rotation),
         Motor::default(),
         MoveIntent::default(),
         crate::combat::Action::default(),

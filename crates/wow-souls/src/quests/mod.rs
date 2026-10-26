@@ -14,9 +14,10 @@
 
 pub(crate) mod dialogue;
 mod lines;
-mod objects;
+pub(crate) mod objects;
 mod prompt;
 mod rewards;
+pub(crate) mod soul_tutorial;
 mod ui;
 mod voice;
 
@@ -51,9 +52,10 @@ pub const CLOSE_RANGE: f32 = 7.0;
 
 #[cfg(test)]
 pub(crate) mod testing {
-    /// The real manifest, or `None` (with a note) when there is none.
+    /// The Northshire regression fixture, independent of the active gameplay manifest.
     pub fn real_world() -> Option<wow_world::model::World> {
-        let path = wow_world::default_manifest_path();
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/world/northshire.txt");
         let Ok(text) = std::fs::read_to_string(&path) else {
             eprintln!("skipped: no manifest at {}", path.display());
             return None;
@@ -103,9 +105,23 @@ impl QuestGame {
         }
     }
 
-    /// The name the player chose in the character menu: the quest texts say it.
-    pub fn set_player_name(&mut self, name: &str) {
-        self.player.name = name.to_string();
+    /// Creation happens after Startup: publish the chosen identity before any class systems run.
+    pub fn set_player_character(&mut self, character: &crate::character::Character) {
+        self.player.name = character.name.clone();
+        self.player.class = wow_world::quest::Class::from_id(character.class.id())
+            .unwrap_or(wow_world::quest::Class::Warrior);
+        use crate::character::Race as Choice;
+        use wow_world::quest::Race;
+        self.player.race = match character.race {
+            Choice::Human => Race::Human,
+            Choice::Dwarf => Race::Dwarf,
+            Choice::Gnome => Race::Gnome,
+            Choice::NightElf => Race::NightElf,
+            Choice::Orc => Race::Orc,
+            Choice::Troll => Race::Troll,
+            Choice::Undead => Race::Undead,
+            Choice::Tauren => Race::Tauren,
+        };
         self.save();
     }
 
@@ -265,10 +281,12 @@ pub fn plugin(app: &mut App) {
             (
                 credit_kills,
                 sync_items,
-                drive.before(crate::combat::act),
+                drive
+                    .before(crate::combat::act)
+                    .before(crate::soulbind::Apply),
                 pay_out,
                 prompt::track_device,
-                prompt::find,
+                prompt::find.after(crate::soulbind::Apply),
                 play_chimes,
             )
                 .chain()
@@ -287,16 +305,14 @@ fn save_path() -> PathBuf {
                     std::process::id()
                 ))
             } else {
-                PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "saves".into()))
-                    .join("WoWSouls/quests-v1.txt")
+                crate::saves::file("quests-v1.txt")
             }
         })
 }
 
 fn load(mut commands: Commands) {
-    let world_path =
-        std::env::var("WOWSOULS_WORLD_FILE").unwrap_or_else(|_| crate::world::MANIFEST.into());
-    let world = match std::fs::read_to_string(&world_path)
+    let world_path = crate::world::manifest_path().display().to_string();
+    let mut world = match std::fs::read_to_string(&world_path)
         .map_err(|e| e.to_string())
         .and_then(|t| wow_world::manifest::parse(&t).map_err(|e| format!("{e:#}")))
     {
@@ -306,6 +322,7 @@ fn load(mut commands: Commands) {
             return;
         }
     };
+    soul_tutorial::add(&mut world);
     let book = QuestBook::new(&world);
     let table = XpTable::from_world(&world);
     let path = save_path();
@@ -326,22 +343,25 @@ fn load(mut commands: Commands) {
     if let Some(why) = &blocked {
         warn!("quests: the save cannot be read ({why}); playing without saving over it");
     }
-    // The name: the environment, else the created character's, else the old save's.
+    // The name and the class: the environment, else the created character's, else the old save's.
     let character = crate::character::load(&crate::character::save_path())
         .ok()
-        .flatten()
-        .map(|c| c.name);
+        .flatten();
+    let class = character
+        .as_ref()
+        .and_then(|c| wow_world::quest::Class::from_id(c.class.id()))
+        .unwrap_or(wow_world::quest::Class::Warrior);
     let name = std::env::var("WOWSOULS_NAME")
         .ok()
         .filter(|n| !n.trim().is_empty())
-        .or(character)
+        .or(character.map(|c| c.name))
         .or_else(|| (!save.name.is_empty()).then(|| save.name.clone()))
         .unwrap_or_else(|| "Adventurer".to_string());
     let level = table.level_for(save.xp);
     info!(
         "quests: {} quests, {} playable, save {} (log {}, xp {}, level {level}, {} copper), player {name}",
         world.quests.len(),
-        book.ids().filter(|&q| book.playable(q)).count(),
+        book.ids().filter(|&q| book.playable_for(q, class)).count(),
         path.display(),
         save.log.entries().count(),
         save.xp,
@@ -356,7 +376,7 @@ fn load(mut commands: Commands) {
             .map(|c| (c.entry, MobXp::of(c)))
             .collect(),
         log: save.log,
-        player: Player::warrior(&name, level),
+        player: Player::of_class(&name, class, level),
         xp: save.xp,
         money: save.money,
         payout: 0,
@@ -472,17 +492,49 @@ fn credit_kills(
 /// items a corpse may still drop.
 fn sync_items(
     game: Option<ResMut<QuestGame>>,
-    owned: Option<Res<Owned>>,
+    owned: Option<ResMut<Owned>>,
+    loot_data: Option<Res<crate::loot::Data>>,
     real: Res<Time<Real>>,
+    mut acquired: MessageWriter<Acquired>,
     mut eligibility: ResMut<QuestLootEligibility>,
     mut toasts: ResMut<Toasts>,
 ) {
-    let (Some(mut game), Some(owned)) = (game, owned) else {
+    let (Some(mut game), Some(mut owned)) = (game, owned) else {
         return;
     };
     let g = &mut *game;
-    let inv = &owned.progress.inventory;
+    let now = real.elapsed_secs();
     if owned.is_changed() {
+        if let Some(data) = loot_data.as_deref() {
+            let starters: Vec<(u32, u32)> = data
+                .0
+                .item_extras
+                .iter()
+                .filter(|ix| ix.start_quest != 0 && owned.progress.inventory.count(ix.entry) > 0)
+                .map(|ix| (ix.entry, ix.start_quest))
+                .collect();
+            for (starter_item, quest) in starters {
+                if wow_world::quest::can_take(&g.book, &g.log, &g.player, quest) {
+                    let src_same = g
+                        .book
+                        .quest(quest)
+                        .is_some_and(|q| q.src_item == starter_item);
+                    if !src_same {
+                        let _ = trade(&mut owned, &[], &[(starter_item, 1)]);
+                    }
+                    accept_from_item(
+                        g,
+                        &mut owned,
+                        &mut acquired,
+                        &mut toasts,
+                        now,
+                        quest,
+                        src_same,
+                    );
+                }
+            }
+        }
+        let inv = &owned.progress.inventory;
         let needed: BTreeSet<u32> = g
             .log
             .active()
@@ -495,10 +547,11 @@ fn sync_items(
             events.extend(g.log.item_count(&g.book, item, inv.count(item)));
         }
         if !events.is_empty() {
-            report(&mut toasts, real.elapsed_secs(), &g.book, &events);
+            report(&mut toasts, now, &g.book, &events);
             g.save();
         }
     }
+    let inv = &owned.progress.inventory;
     let wanted = g.log.droppable_items(&g.book, &g.player, &|i| inv.count(i));
     if eligibility.0 != wanted {
         info!("quests: corpses may drop the quest items {wanted:?}");
@@ -560,7 +613,11 @@ fn drive(
         Option<Res<crate::run_mode::Unattended>>,
         Controls,
     ),
-    mut script: ResMut<Script>,
+    (mut script, binding, mut bind_requests): (
+        ResMut<Script>,
+        Res<crate::soulbind::Binding>,
+        MessageWriter<crate::soulbind::BindRequest>,
+    ),
     game: Option<ResMut<QuestGame>>,
     (mut talk, mut log_screen, mut toasts, mut shop): (
         ResMut<Talk>,
@@ -705,13 +762,14 @@ fn drive(
     }
 
     // A screen closes when the player is hurt, dies, is busy with a body action, or walks away.
-    let near = |npc: QuestNpc| {
-        let QuestNpc::Creature(entry) = npc else {
-            return true;
-        };
-        npcs.iter().any(|(xf, n, _)| {
+    let near = |npc: QuestNpc| match npc {
+        QuestNpc::Creature(entry) => npcs.iter().any(|(xf, n, _)| {
             n.entry == entry && flat_distance(me.translation, xf.translation) <= CLOSE_RANGE
-        })
+        }),
+        QuestNpc::Object(entry) => crates.iter().any(|(_, xf, o)| {
+            objects.spots.get(o.0).is_some_and(|s| s.entry == entry)
+                && flat_distance(me.translation, xf.translation) <= CLOSE_RANGE
+        }),
     };
     let busy = action.is_dead() || health.cur <= 0.0 || action.owns_body();
     if busy || talk.0.as_ref().is_some_and(|d| !near(d.npc)) {
@@ -741,21 +799,49 @@ fn drive(
                     && !busy
                     && !action.owns_body()
                 {
-                    // A quest crate within reach that a quest still wants comes before an NPC.
+                    if let Some(site) = crate::soulbind::nearest(&binding.sites, me.translation) {
+                        if !screen.locked() && !screen.modal {
+                            bind_requests.write(crate::soulbind::BindRequest(site.id));
+                            screen.swallow_until = now + SWALLOW_SECS;
+                        }
+                        continue;
+                    }
+                    // A quest object within reach that a quest still wants comes before an NPC.
                     if let (Some(data), Some((e, index))) = (
                         loot_data.as_deref(),
-                        objects::nearest(&crates, me.translation),
+                        objects::nearest_gatherable(
+                            &crates,
+                            &objects,
+                            me.translation,
+                            &eligibility.0,
+                        ),
                     ) {
                         let table = objects.spots.get(index).map_or(0, |s| s.loot);
                         let seed = (now * 1000.0) as u64 ^ ((index as u64) << 32);
-                        let items = wow_world::loot::roll(
-                            &data.0.loot,
-                            wow_world::model::LootKind::Object,
-                            table,
-                            seed,
-                            &eligibility.0,
-                        )
-                        .unwrap_or_default();
+                        let items: Vec<ItemCount> = if table != 0 {
+                            wow_world::loot::roll_with(
+                                &data.0.loot,
+                                wow_world::model::LootKind::Object,
+                                table,
+                                seed,
+                                &eligibility.0,
+                                crate::loot::chances(),
+                            )
+                            .unwrap_or_default()
+                        } else {
+                            objects
+                                .spots
+                                .get(index)
+                                .map(|s| {
+                                    s.quest_items
+                                        .iter()
+                                        .copied()
+                                        .filter(|i| eligibility.0.contains(i))
+                                        .map(|i| (i, 1))
+                                        .collect()
+                                })
+                                .unwrap_or_default()
+                        };
                         if !items.is_empty() {
                             match trade(&mut owned, &items, &[]) {
                                 Ok(()) => {
@@ -765,7 +851,7 @@ fn drive(
                                     });
                                     commands.entity(e).despawn();
                                     objects.gathered(index, now);
-                                    info!("quests: gathered crate {index}: {items:?}");
+                                    info!("quests: gathered object {index}: {items:?}");
                                 }
                                 Err(e) => {
                                     toasts.push(now, format!("Could not take it: {e}"));
@@ -783,8 +869,12 @@ fn drive(
                         .min_by(|a, b| a.0.total_cmp(&b.0));
                     if let Some((_, n, name)) = nearest {
                         let name = name.map_or("Stranger", |n| n.as_str());
-                        let services =
-                            crate::shop::services(loot_data.as_deref(), n.flags, n.entry);
+                        let services = crate::shop::services(
+                            loot_data.as_deref(),
+                            n.flags,
+                            n.entry,
+                            g.player.class as u8,
+                        );
                         let d = dialogue::open(
                             &g.book,
                             &g.log,
@@ -797,6 +887,24 @@ fn drive(
                         if let dialogue::Page::Service(service) = d.page {
                             open_service(&mut shop, loot_data.as_deref(), service, n.entry, name);
                         } else {
+                            talk.0 = Some(d);
+                        }
+                    } else if let Some((_, idx, _)) =
+                        objects::nearest_talkable(&crates, &objects, g, me.translation)
+                    {
+                        if let Some(spot) = objects.spots.get(idx) {
+                            let d = dialogue::open(
+                                &g.book,
+                                &g.log,
+                                &g.player,
+                                QuestNpc::Object(spot.entry),
+                                &spot.name,
+                                dialogue::Services::default(),
+                            );
+                            info!(
+                                "quests: inspecting object {} ({}): page {:?}",
+                                spot.name, spot.entry, d.page
+                            );
                             talk.0 = Some(d);
                         }
                     }
@@ -937,20 +1045,36 @@ fn accept(
     now: f32,
     quest: u32,
 ) {
+    accept_from_item(g, owned, acquired, toasts, now, quest, false);
+}
+
+fn accept_from_item(
+    g: &mut QuestGame,
+    owned: &mut Owned,
+    acquired: &mut MessageWriter<Acquired>,
+    toasts: &mut Toasts,
+    now: f32,
+    quest: u32,
+    already_holds_source: bool,
+) {
     let inv = owned.progress.inventory.clone();
     let mut log = g.log.clone();
     match log.accept(&g.book, &g.player, quest, &|i| inv.count(i)) {
         Ok(events) => {
-            let source: Vec<ItemCount> = events
-                .iter()
-                .filter_map(|e| match e {
-                    Event::Accepted {
-                        source_item: Some(it),
-                        ..
-                    } => Some(*it),
-                    _ => None,
-                })
-                .collect();
+            let source: Vec<ItemCount> = if already_holds_source {
+                Vec::new()
+            } else {
+                events
+                    .iter()
+                    .filter_map(|e| match e {
+                        Event::Accepted {
+                            source_item: Some(it),
+                            ..
+                        } => Some(*it),
+                        _ => None,
+                    })
+                    .collect()
+            };
             if let Err(e) = trade(owned, &source, &[]) {
                 toasts.push(now, format!("Could not take the quest: {e}"));
                 return;
@@ -1127,7 +1251,7 @@ mod tests {
         );
     }
 
-    fn game_of(w: &wow_world::model::World) -> QuestGame {
+    pub(super) fn game_of(w: &wow_world::model::World) -> QuestGame {
         QuestGame {
             book: QuestBook::new(w),
             table: XpTable::from_world(w),
@@ -1144,6 +1268,18 @@ mod tests {
             path: PathBuf::from("unused"),
             blocked: Some("never saved in a test".into()),
         }
+    }
+
+    #[test]
+    fn freshly_created_mage_publishes_class_before_class_systems_or_talents_run() {
+        let mut game = game_of(&wow_world::model::World::default());
+        let mut character = crate::character::Character::human_warrior("Magus");
+        character.class = crate::character::Class::Mage;
+        game.set_player_character(&character);
+        assert_eq!(game.player.class, wow_world::quest::Class::Mage);
+        assert_eq!(game.player.race, wow_world::quest::Race::Human);
+        assert_eq!(game.player.name, "Magus");
+        assert!(game.blocked.is_some(), "test never writes a live save");
     }
 
     #[test]

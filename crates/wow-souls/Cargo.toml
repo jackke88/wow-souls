@@ -29,6 +29,8 @@ symphonia.workspace = true
 png = "0.18"
 # The graphics lanes upload their uniform rows with `bytemuck::cast_slice` (in Cargo.lock through Bevy).
 bytemuck = { version = "1", features = ["derive"] }
+# The native folder picker and message boxes for choosing the WoW client (`install.rs`).
+rfd = "0.17"
 
 [build-dependencies]
 benilla-buildstamp.workspace = true

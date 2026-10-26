@@ -1,0 +1,24 @@
+casts-version 2
+# imported-source 257161 1527186972 c0000_a00_hi.anibnd.dcx
+# imported-source 1509755 1527186972 c0000_a00_lo.anibnd.dcx
+# imported-source 2323464 1527186972 c0000_a00_md.anibnd.dcx
+# imported-source 778083 1527186972 c0000_a0x.anibnd.dcx
+# imported-source 1713982 1527186972 c0000_a1x.anibnd.dcx
+# imported-source 2241659 1527186972 c0000_a2x.anibnd.dcx
+# imported-source 1929705 1527186972 c0000_a3x.anibnd.dcx
+# imported-source 1106895 1527186972 c0000_a4x.anibnd.dcx
+# imported-source 763242 1527186972 c0000_a5x.anibnd.dcx
+# imported-source 474701 1527186972 c0000_a6x.anibnd.dcx
+# imported-source 322376 1527186972 c0000_a7x.anibnd.dcx
+# imported-source 364753 1527186972 c0000_a8x.anibnd.dcx
+# imported-source 1763182 1527186972 c0000_a9x.anibnd.dcx
+cast fireball greatsword_light_1 2.467 0.600 1.200
+bullet fireball 0.5 10 15 15 0 9.8 10 0.25 6010
+impact fireball 1 1.2 3 40
+cast frostbolt polearm_light_1 1.733 0.533 1.033
+bullet frostbolt 1.1 20 4 30 0.32 0 40 0.1 -1
+impact frostbolt 0 0.7 1 20
+cast fire_blast mace_2h_heavy_1 2.900 0.933 1.733
+bullet fire_blast 0.05 0 50 50 0 0 10 0.2 7010
+impact fire_blast 0.6 0.8 2 40
+cast frost_armor body_self_enchant 1.633 0.367 1.433

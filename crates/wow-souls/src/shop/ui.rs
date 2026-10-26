@@ -266,7 +266,7 @@ fn refresh(
             node.display = display;
         }
         let color = if live && first + row.0 == cursor {
-            Color::srgba(0.46, 0.21, 0.07, 0.65)
+            crate::hud::theme::SELECTED
         } else {
             Color::NONE
         };

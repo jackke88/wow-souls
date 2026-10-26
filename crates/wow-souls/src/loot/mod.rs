@@ -190,6 +190,17 @@ struct Instruments {
     use_at: Option<f32>,
 }
 
+/// How corpses, chests and quest objects roll their tables: quest items always drop, the rest at WoW's
+/// chance (the user, 2026-10-18; everything dropped on 2026-10-17 was too much).
+/// `WOWSOULS_LOOT_CHANCES=wow` (quest items at their chance too) or `=all` (everything drops).
+pub fn chances() -> wow_world::loot::Chances {
+    match std::env::var("WOWSOULS_LOOT_CHANCES").as_deref() {
+        Ok("wow") => wow_world::loot::Chances::Wow,
+        Ok("all") => wow_world::loot::Chances::Always,
+        _ => wow_world::loot::Chances::QuestItems,
+    }
+}
+
 fn unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -230,8 +241,7 @@ pub(crate) fn load(mut commands: Commands) {
             if crate::run_mode::unattended() {
                 PathBuf::from(format!("cache/loot-check/items-{}.txt", std::process::id()))
             } else {
-                PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "saves".into()))
-                    .join("WoWSouls/items-v1.txt")
+                crate::saves::file("items-v1.txt")
             }
         });
     let (progress, blocked) = match Progress::load(&path) {
@@ -252,19 +262,20 @@ pub(crate) fn load(mut commands: Commands) {
         path,
         blocked,
     });
-    let world_path =
-        std::env::var("WOWSOULS_WORLD_FILE").unwrap_or_else(|_| crate::world::MANIFEST.into());
-    let world = std::fs::read_to_string(&world_path)
+    let world_path = crate::world::manifest_path();
+    let mut world = std::fs::read_to_string(&world_path)
         .ok()
         .and_then(|s| wow_world::manifest::parse(&s).ok())
         .unwrap_or_default();
+    // The belt torch, ours: its item row and the general goods traders who sell it.
+    wow_world::torch::add_to(&mut world);
     commands.insert_resource(Data(world));
-    match interaction::Kit::load(&crate::dsclip::cache_dir()) {
+    match interaction::Kit::load(&crate::motion_clip::cache_dir()) {
         Ok(k) => {
             commands.insert_resource(k);
         }
         Err(e) => {
-            warn!("loot: interactions unavailable ({e}); run wow-souls-dsr loot");
+            warn!("loot: interactions unavailable ({e}); restore the project anim/source interaction clips");
         }
     }
     commands.insert_resource(Instruments {
@@ -297,6 +308,7 @@ fn place_chests(
     }
     let mut spots: Vec<_> = treasures::TREASURES
         .iter()
+        .filter(|t| t.available(&data.0))
         .map(|t| (t.id, t.wow, t.yaw, t.name, Some(t.items), 0, 0))
         .collect();
     if crate::world::world_on() {
@@ -324,7 +336,16 @@ fn place_chests(
             continue;
         }
         let mut at = benilla_assets::coords::wow_to_bevy(wow);
-        let Some(y) = crate::settle::snap_to_ground(&collide, at) else {
+        // Authored cave caches must wait for their own floor. The general spawn snap can fall
+        // back from 60 yd above, which could permanently put a chest on a mine's roof instead.
+        let ground = if reward.is_some() {
+            collide
+                .ray_body(at + Vec3::Y * 1.5, Dir3::NEG_Y, 3.0)
+                .map(|hit| at.y + 1.5 - hit.distance)
+        } else {
+            crate::settle::snap_to_ground(&collide, at)
+        };
+        let Some(y) = ground else {
             continue;
         };
         at.y = y;
@@ -413,7 +434,7 @@ fn corpse_loot(
         let Some(table) = table else {
             continue;
         };
-        let mut items = match wow_world::loot::roll(
+        let mut items = match wow_world::loot::roll_with(
             &data.0.loot,
             LootKind::Creature,
             table,
@@ -422,6 +443,7 @@ fn corpse_loot(
                 .and_then(|s| s.parse().ok())
                 .unwrap_or_else(|| unix() ^ dead.who.to_bits()),
             &quests.0,
+            crate::loot::chances(),
         ) {
             Ok(i) => i,
             Err(e) => {
@@ -677,11 +699,33 @@ fn drive(
                 || keys.just_pressed(KeyCode::KeyW)
                 || pads.iter().any(|p| p.just_pressed(GamepadButton::DPadUp)));
         if length > 0 && (down || up) {
-            screen.selected = if down {
+            screen.selected = if crate::hud::theme::enabled() {
+                if down {
+                    (screen.selected + 5).min(length - 1)
+                } else {
+                    screen.selected.saturating_sub(5)
+                }
+            } else if down {
                 (screen.selected + 1) % length
             } else {
                 (screen.selected + length - 1) % length
             };
+        }
+        if length > 0 && on_items && crate::hud::theme::enabled() {
+            let right = keys.just_pressed(KeyCode::ArrowRight)
+                || keys.just_pressed(KeyCode::KeyD)
+                || pads
+                    .iter()
+                    .any(|p| p.just_pressed(GamepadButton::DPadRight));
+            let left = keys.just_pressed(KeyCode::ArrowLeft)
+                || keys.just_pressed(KeyCode::KeyA)
+                || pads.iter().any(|p| p.just_pressed(GamepadButton::DPadLeft));
+            if right {
+                screen.selected = (screen.selected + 1).min(length - 1);
+            }
+            if left {
+                screen.selected = screen.selected.saturating_sub(1);
+            }
         }
     }
     screen.back_taken = false;
@@ -931,12 +975,13 @@ fn drive(
                     let items = if let Some(reward) = c.reward {
                         reward.to_vec()
                     } else {
-                        wow_world::loot::roll(
+                        wow_world::loot::roll_with(
                             &data.0.loot,
                             LootKind::Object,
                             c.table,
                             unix() ^ u64::from(c.id),
                             &quests.0,
+                            crate::loot::chances(),
                         )
                         .map_err(|e| e.to_string())?
                     };
@@ -1180,7 +1225,7 @@ mod tests {
                         };
                         interaction::Clip {
                             kind,
-                            ds: wow.clone(),
+                            reference: wow.clone(),
                             wow,
                             commit: if kind == Kind::Open { 1.2 } else { 1.0 },
                         }
@@ -1290,6 +1335,39 @@ mod tests {
         ));
         assert_eq!(saved.inventory.count(SALVE), 0);
         assert_eq!(f.w.resource::<Messages<Acquired>>().len(), 0);
+    }
+    #[test]
+    fn every_elwynn_bundle_opens_takes_and_reloads_once_through_the_real_flow() {
+        for t in &treasures::TREASURES[3..] {
+            let mut f = Fixture::new();
+            {
+                let mut query = f.w.query::<&mut Chest>();
+                let mut chest = query.single_mut(&mut f.w).unwrap();
+                chest.id = t.id;
+                chest.reward = Some(t.items);
+            }
+            f.button(GamepadButton::North);
+            f.frame(1.3);
+            assert_eq!(
+                Progress::load(&f.path).unwrap().chests[&t.id],
+                ChestState::Open(t.items.to_vec()),
+                "{} pending",
+                t.name
+            );
+            f.frame(1.0);
+            f.button(GamepadButton::North);
+            f.frame(1.1);
+            f.frame(1.0);
+            let saved = Progress::load(&f.path).unwrap();
+            assert_eq!(saved.chests[&t.id], ChestState::Claimed(u64::MAX));
+            for &(id, count) in t.items {
+                assert_eq!(saved.inventory.count(id), count, "{} item {id}", t.name);
+            }
+            f.button(GamepadButton::North);
+            f.frame(3.0);
+            assert_eq!(Progress::load(&f.path).unwrap().text(), saved.text());
+            assert_eq!(f.w.resource::<Messages<Acquired>>().len(), 1);
+        }
     }
     #[test]
     fn gamepad_inventory_navigation_use_and_back_work_and_hold_movement() {

@@ -1,5 +1,5 @@
 //! The plain HUD: Souls-style bars made of coloured rectangles, used when the Dark Souls art
-//! cache (`cache/dsr/hud`) is missing. Health and stamina at the top left, their length the
+//! native themed HUD is disabled. Health and stamina at the top left, their length the
 //! stat's maximum and their fill its current value; the struck enemy's bar follows it on screen
 //! with the damage run beside it.
 
@@ -47,10 +47,14 @@ const BAR_HEIGHT: f32 = 9.0;
 
 pub fn plugin(app: &mut App) {
     // Only without the Dark Souls art (`hud::art::HudArt`).
-    let plain = not(resource_exists::<super::art::HudArt>);
+    let plain = not(resource_exists::<super::art::HudArt>).and(not(super::theme::enabled));
     app.add_systems(
         OnEnter(Phase::Playing),
-        (spawn_bars, spawn_enemy_bar).run_if(plain.clone()),
+        (
+            spawn_bars.run_if(not(resource_exists::<super::VitalsArt>)),
+            spawn_enemy_bar,
+        )
+            .run_if(plain.clone()),
     )
     .init_resource::<EnemyBarState>()
     .add_systems(
@@ -62,7 +66,10 @@ pub fn plugin(app: &mut App) {
     )
     .add_systems(
         Update,
-        update_bars.run_if(in_state(Phase::Playing)).run_if(plain),
+        update_bars
+            .run_if(in_state(Phase::Playing))
+            .run_if(plain)
+            .run_if(not(resource_exists::<super::VitalsArt>)),
     );
 }
 

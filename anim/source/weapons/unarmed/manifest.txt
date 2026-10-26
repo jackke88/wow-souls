@@ -1,0 +1,43 @@
+# project-animations 1; source-derived DSR reference data
+wscl-cache 6
+extractor 5
+class unarmed
+weapon 900000
+chain 3
+two-handed 0
+grip-bones 97 56
+base-damage 20 78
+idle body_idle
+guard 0 0 0
+guardclip raise shield_guard_raise
+guardclip hold shield_guard_hold
+guardclip lower shield_guard_lower
+move r1_1 fist_light_1 judge 0 stamina 18 mult 1 level 1 poise 5 stop 0.08 knock 0.7 radius 0.4
+hit r1_1 0 0.6 0.7 1 1 5 0.08 0.7 0.4
+move r1_2 fist_light_2 judge 10 stamina 18 mult 1 level 1 poise 5 stop 0.08 knock 0.51 radius 0.4
+hit r1_2 10 0.4 0.5 1 1 5 0.08 0.51 0.4
+move r1_3 fist_light_3 judge 20 stamina 18 mult 1 level 1 poise 5 stop 0.08 knock 0.51 radius 0.4
+hit r1_3 20 0.33333334 0.43333334 1 1 5 0.08 0.51 0.4
+move r2_1 fist_heavy_1 judge 100 stamina 36 mult 1.25 level 2 poise 6 stop 0.08 knock 0.6 radius 0.4
+hit r2_1 100 0.6333333 0.73333335 1.25 2 6 0.08 0.6 0.4
+move r2_2 fist_heavy_2 judge 110 stamina 45 mult 1.4 level 2 poise 6 stop 0.08 knock 1.4 radius 0.4
+hit r2_2 110 0.7 0.8 1.4 2 6 0.08 1.4 0.4
+move roll_attack fist_rolling_attack judge 540 stamina 18 mult 1 level 1 poise 5 stop 0.08 knock 0.7 radius 0.4
+hit roll_attack 540 0.23333333 0.33333334 1 1 5 0.08 0.7 0.4
+grip -0.3771662 -0.20852113 -0.9023669 0 1 0
+# imported-source 257161 1527186972 c0000_a00_hi.anibnd.dcx
+# imported-source 1509755 1527186972 c0000_a00_lo.anibnd.dcx
+# imported-source 2323464 1527186972 c0000_a00_md.anibnd.dcx
+# imported-source 778083 1527186972 c0000_a0x.anibnd.dcx
+# imported-source 1713982 1527186972 c0000_a1x.anibnd.dcx
+# imported-source 2241659 1527186972 c0000_a2x.anibnd.dcx
+# imported-source 1929705 1527186972 c0000_a3x.anibnd.dcx
+# imported-source 1106895 1527186972 c0000_a4x.anibnd.dcx
+# imported-source 763242 1527186972 c0000_a5x.anibnd.dcx
+# imported-source 474701 1527186972 c0000_a6x.anibnd.dcx
+# imported-source 322376 1527186972 c0000_a7x.anibnd.dcx
+# imported-source 364753 1527186972 c0000_a8x.anibnd.dcx
+# imported-source 1763182 1527186972 c0000_a9x.anibnd.dcx
+# imported-source 913588 1527186972 human_reference.anibnd.dcx
+# imported-source 498489 1527186972 GameParam.parambnd.dcx
+# imported-source 60242 1527186972 paramdef.paramdefbnd.dcx

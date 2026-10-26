@@ -132,10 +132,7 @@ pub fn decode(text: &str) -> Option<DayClock> {
 pub fn save_path() -> PathBuf {
     std::env::var("WOWSOULS_CLOCK_SAVE")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "saves".into()))
-                .join("WoWSouls/clock-v1.txt")
-        })
+        .unwrap_or_else(|_| crate::saves::file("clock-v1.txt"))
 }
 
 /// How the clock runs, decided once from the environment.
@@ -148,6 +145,10 @@ struct Pace {
 
 /// What the environment says: (the start minute if set, the day length if set).
 fn from_vars(var: impl Fn(&str) -> Option<String>) -> (Option<f64>, Option<f64>) {
+    // The engine's manual clock is authoritative for lives as well as the sky.
+    if let Some(minute) = var("WOW_CLOCK").and_then(|v| v.trim().parse::<u32>().ok()) {
+        return (Some(f64::from(minute % 1440)), Some(0.0));
+    }
     let hour = var("WOWSOULS_HOUR").and_then(|v| parse_hour(&v));
     let day = var("WOWSOULS_DAY_MINUTES")
         .and_then(|v| v.trim().parse::<f64>().ok())
@@ -203,7 +204,15 @@ pub fn plugin(app: &mut App) {
         );
 }
 
-fn tick(time: Res<Time<Real>>, pace: Res<Pace>, mut clock: ResMut<DayClock>) {
+fn tick(
+    time: Res<Time<Real>>,
+    world_time: Res<Time<bevy::time::Virtual>>,
+    pace: Res<Pace>,
+    mut clock: ResMut<DayClock>,
+) {
+    if world_time.is_paused() {
+        return;
+    }
     if pace.minutes_per_second > 0.0 {
         *clock = clock.advance(f64::from(time.delta_secs()) * pace.minutes_per_second);
     }
@@ -334,6 +343,35 @@ mod tests {
     }
 
     #[test]
+    fn pausing_the_world_also_pauses_daily_lives_without_catching_up_on_resume() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Real>::default())
+            .insert_resource(Time::<bevy::time::Virtual>::default())
+            .insert_resource(Pace {
+                minutes_per_second: 1.0,
+                save: None,
+            })
+            .insert_resource(DayClock::at(720.0))
+            .add_systems(Update, tick);
+        app.world_mut()
+            .resource_mut::<Time<bevy::time::Virtual>>()
+            .pause();
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(std::time::Duration::from_secs(120));
+        app.update();
+        assert_eq!(app.world().resource::<DayClock>().minute, 720.0);
+        app.world_mut()
+            .resource_mut::<Time<bevy::time::Virtual>>()
+            .unpause();
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(std::time::Duration::from_secs(1));
+        app.update();
+        assert_eq!(app.world().resource::<DayClock>().minute, 721.0);
+    }
+
+    #[test]
     fn the_menu_is_lit_at_dusk_unless_something_names_the_hour() {
         let dusk = Some(18.0 * 60.0 + 40.0);
         assert_eq!(menu_minute(false, false, false, true, None), dusk);
@@ -413,6 +451,22 @@ mod tests {
         assert_eq!(
             from_vars(env(&[("WOWSOULS_DAY_MINUTES", "-3")])),
             (None, None)
+        );
+        assert_eq!(
+            from_vars(env(&[
+                ("WOW_CLOCK", " 1500 "),
+                ("WOWSOULS_HOUR", "12"),
+                ("WOWSOULS_DAY_MINUTES", "24"),
+            ])),
+            (Some(60.0), Some(0.0)),
+            "the same pinned hour must freeze the sky and the inhabitants"
+        );
+        assert_eq!(
+            from_vars(env(&[
+                ("WOW_CLOCK", "bad"),
+                ("WOWSOULS_DAY_MINUTES", " 48 ")
+            ])),
+            (None, Some(48.0)),
         );
     }
 }

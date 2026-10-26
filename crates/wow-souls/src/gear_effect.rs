@@ -46,7 +46,7 @@ pub fn off_hand_in_use(two_handed: bool, ranged: bool) -> bool {
 }
 
 /// [`off_hand_in_use`] for the held weapon's moveset (no moveset yet: the sword and shield stance).
-pub fn off_hand_held(moves: Option<&crate::dsclip::DsMoves>) -> bool {
+pub fn off_hand_held(moves: Option<&crate::motion_clip::WeaponClips>) -> bool {
     moves.is_none_or(|m| off_hand_in_use(m.two_handed, m.projectile.is_some()))
 }
 
@@ -56,7 +56,7 @@ fn refresh(
     owned: Option<Res<Owned>>,
     data: Option<Res<Data>>,
     game: Option<Res<QuestGame>>,
-    moves: Option<Res<crate::dsclip::DsMoves>>,
+    moves: Option<Res<crate::motion_clip::WeaponClips>>,
     enabled: Res<Enabled>,
     mut fx: ResMut<GearFx>,
 ) {
@@ -82,6 +82,8 @@ fn refresh(
             now = now.with_character(&c);
         }
     }
+    // A buff's armor is the spells' ([`crate::spells`]), not the gear's: a recompute keeps it.
+    now.buff_armor = fx.0.buff_armor;
     if fx.0 != now {
         fx.0 = now;
         info!(

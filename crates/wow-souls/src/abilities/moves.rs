@@ -58,12 +58,16 @@ const CLAP_POISE: f32 = 12.0;
 const CLAP_KNOCK: f32 = 0.5;
 const CLAP_SHAKE: f32 = 0.4;
 
-/// The cooldown of an ability (s): Charge 12, Thunder Clap 5, the shout none.
+/// The cooldown of an ability (s): Charge 12, Thunder Clap 5, Fire Blast 8, the rest none.
 pub fn cooldown(effect: Effect) -> f32 {
     match effect {
+        Effect::MortalStrike => 8.0,
+        Effect::Bloodthirst => 10.0,
+        Effect::ShieldWall => 45.0,
         Effect::Charge => 12.0,
         Effect::ThunderClap => 5.0,
-        Effect::BattleShout => 0.0,
+        Effect::FireBlast => 8.0,
+        Effect::BattleShout | Effect::Fireball | Effect::Frostbolt | Effect::FrostArmor => 0.0,
     }
 }
 
@@ -75,6 +79,95 @@ const ANIM_STUN: u16 = 14;
 /// The animations' lengths on the human male (s).
 pub const ROAR_SECS: f32 = 1.0;
 pub const CLAP_SECS: f32 = 0.5;
+
+/// A cast animation on the upper body only, over a body that keeps running (WoW's own way with an
+/// instant cast on the move): the clip's upper-body node (benilla masks the legs and pelvis out of it)
+/// plays over the run, and the Dark Souls gait gives the spine, arms and head up to it by
+/// [`UpperCast::share`] ([`crate::locomotion`]).
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct UpperCast {
+    pub clip: u16,
+    pub left: f32,
+    /// Seconds since it began.
+    pub age: f32,
+    /// The upper-body node playing, once started.
+    node: Option<AnimationNodeIndex>,
+}
+
+/// The roar's weight over the run under it (as the hand grip's over the gait), and how long it takes
+/// to come in and to go.
+const UPPER_WEIGHT: f32 = 8.0;
+const UPPER_FADE_IN: f32 = 0.12;
+const UPPER_FADE_OUT: f32 = 0.2;
+
+impl UpperCast {
+    pub fn new(clip: u16, secs: f32) -> UpperCast {
+        UpperCast {
+            clip,
+            left: secs,
+            age: 0.0,
+            node: None,
+        }
+    }
+
+    /// How much of the upper body it has now, 0..1: it eases in and out.
+    pub fn share(&self) -> f32 {
+        let fade_in = (self.age / UPPER_FADE_IN).clamp(0.0, 1.0);
+        let fade_out = (self.left / UPPER_FADE_OUT).clamp(0.0, 1.0);
+        fade_in.min(fade_out)
+    }
+}
+
+/// Plays, eases and ends an [`UpperCast`]: a blow, a roll or a death ends it early.
+pub fn upper_cast(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut avatar: Query<
+        (
+            Entity,
+            &Action,
+            &Health,
+            &ModelAnimations,
+            &mut AnimationPlayer,
+            &mut UpperCast,
+        ),
+        With<Avatar>,
+    >,
+) {
+    let dt = time.delta_secs();
+    for (me, action, health, anims, mut player, mut cast) in &mut avatar {
+        if cast.node.is_none() && cast.age == 0.0 {
+            cast.node = anims.find(cast.clip).and_then(|c| c.upper_node);
+            if let Some(node) = cast.node {
+                player
+                    .start(node)
+                    .set_repeat(RepeatAnimation::Never)
+                    .set_weight(0.0);
+            }
+        }
+        cast.age += dt;
+        cast.left -= dt;
+        if cast.left <= 0.0 || action.owns_body() || health.cur <= 0.0 {
+            if let Some(node) = cast.node {
+                player.stop(node);
+            }
+            commands.entity(me).remove::<UpperCast>();
+            continue;
+        }
+        if let Some(active) = cast.node.and_then(|n| player.animation_mut(n)) {
+            active.set_weight(UPPER_WEIGHT * cast.share());
+        }
+    }
+}
+
+/// Faster than this (yd/s) the shout is cast on the run: the roar is the upper body's ([`UpperCast`]),
+/// the legs keep running.
+pub const SHOUT_RUN_SPEED: f32 = 1.0;
+
+/// Whether a Battle Shout at this ground speed keeps the warrior moving ([`UpperCast`], not [`Casting`]).
+pub fn shouts_on_the_move(horiz_vel: Vec3) -> bool {
+    Vec2::new(horiz_vel.x, horiz_vel.z).length() > SHOUT_RUN_SPEED
+}
 
 /// A charge under way: the enemy, and how long it has not got closer.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
@@ -104,10 +197,23 @@ pub struct Casting {
     pub left: f32,
 }
 
-/// An enemy the clap slowed.
+/// An enemy a slow holds (Thunder Clap's, a Frostbolt's): the seconds left and the share of its speed it
+/// keeps.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct Slowed {
     pub left: f32,
+    pub factor: f32,
+}
+
+/// A walking speed under a slow that leaves `factor` of it.
+pub fn slowed_speed(speed: f32, factor: f32) -> f32 {
+    speed * factor
+}
+
+/// How much of a frame the pause between swings gains under a slow of `factor`: it counts down at
+/// `factor` of its pace, so it lasts `1 / factor` as long.
+pub fn slow_pause_stretch(factor: f32) -> f32 {
+    1.0 - factor
 }
 
 /// Thunder Clap was cast: the blast happens in [`thunder_clap`].
@@ -368,6 +474,7 @@ pub fn thunder_clap(
             if !lethal {
                 commands.entity(victim).insert(Slowed {
                     left: CLAP_SLOW_SECS,
+                    factor: CLAP_SLOW,
                 });
                 fx::spawn(&mut commands, &fx, fx::Kind::Slow, victim);
             }
@@ -396,15 +503,30 @@ pub fn stun(
         Option<&ModelAnimations>,
         Option<&mut AnimationPlayer>,
         Option<&mut AnimationTransitions>,
+        Option<&crate::boss::Frenzy>,
     )>,
 ) {
     for s in stuns.read() {
-        let Ok((mut reaction, mut hostile, mut brain, mut play, mut intent, anims, player, tr)) =
-            foes.get_mut(s.target)
+        let Ok((
+            mut reaction,
+            mut hostile,
+            mut brain,
+            mut play,
+            mut intent,
+            anims,
+            player,
+            tr,
+            frenzy,
+        )) = foes.get_mut(s.target)
         else {
             continue;
         };
         if *reaction == Reaction::Dead {
+            continue;
+        }
+        // A boss rising into its Frenzy is not to be stopped ([`crate::boss::stuns`]).
+        if !crate::boss::stuns(frenzy.map(|f| f.0)) {
+            info!("abilities: the stun does not take: the boss rises into its Frenzy");
             continue;
         }
         if let (Some(anims), Some(mut p), Some(mut tr)) = (anims, player, tr) {
@@ -434,8 +556,9 @@ pub fn stun(
     }
 }
 
-/// A slowed creature walks and runs at [`CLAP_SLOW`] of its speed and rests longer between swings. Runs
-/// after the creature's mind has set its intent for the frame.
+/// A slowed creature walks and runs at its slow's `factor` of its speed (Thunder Clap's [`CLAP_SLOW`],
+/// a Frostbolt's) and rests longer between swings. Runs after the creature's mind has set its intent for
+/// the frame.
 pub fn apply_slow(
     mut commands: Commands,
     time: Res<Time>,
@@ -448,10 +571,10 @@ pub fn apply_slow(
             commands.entity(e).remove::<Slowed>();
             continue;
         }
-        intent.speed *= CLAP_SLOW;
-        // The pause between swings counts down slower: it lasts 1 / CLAP_SLOW as long.
+        intent.speed = slowed_speed(intent.speed, slowed.factor);
+        // The pause between swings counts down slower: it lasts 1 / factor as long.
         if let Mind::Cooldown { left } = &mut brain.mind {
-            *left += dt * (1.0 - CLAP_SLOW);
+            *left += dt * slow_pause_stretch(slowed.factor);
         }
     }
 }
@@ -460,8 +583,55 @@ pub fn apply_slow(
 mod tests {
     use super::*;
 
+    #[test]
+    fn an_upper_body_cast_eases_in_and_out() {
+        let mut c = UpperCast::new(ANIM_ROAR, ROAR_SECS);
+        assert_eq!(c.share(), 0.0, "it starts from the run");
+        c.age = 0.06;
+        c.left -= 0.06;
+        assert!((c.share() - 0.5).abs() < 1.0e-4);
+        c.age = 0.5;
+        c.left = 0.5;
+        assert_eq!(c.share(), 1.0);
+        c.left = 0.05;
+        assert!((c.share() - 0.25).abs() < 1.0e-4, "and hands the body back");
+    }
+
+    #[test]
+    fn a_shout_on_the_run_does_not_stop_the_warrior() {
+        assert!(!shouts_on_the_move(Vec3::ZERO));
+        assert!(
+            !shouts_on_the_move(Vec3::new(0.5, -3.0, 0.0)),
+            "falling is not running"
+        );
+        assert!(shouts_on_the_move(Vec3::new(0.0, 0.0, -4.2)));
+    }
+
     fn foe(n: u32) -> Entity {
         Entity::from_raw_u32(n).unwrap()
+    }
+
+    #[test]
+    fn a_slow_scales_speed_by_its_own_factor() {
+        assert_eq!(
+            slowed_speed(7.0, CLAP_SLOW),
+            7.0 * 0.6,
+            "Thunder Clap: 40 % slower"
+        );
+        assert_eq!(
+            slowed_speed(7.0, 0.5),
+            3.5,
+            "a slow is whatever factor it carries"
+        );
+        assert_eq!(slowed_speed(7.0, 1.0), 7.0);
+    }
+
+    #[test]
+    fn a_slows_pause_between_swings_lasts_as_much_longer_as_its_share() {
+        // The pause counts down at `factor` of its pace: 0.6 lasts 1 / 0.6 as long.
+        assert!((slow_pause_stretch(0.6) - 0.4).abs() < 1.0e-6);
+        assert!((slow_pause_stretch(0.7) - 0.3).abs() < 1.0e-6);
+        assert_eq!(slow_pause_stretch(1.0), 0.0);
     }
 
     #[test]

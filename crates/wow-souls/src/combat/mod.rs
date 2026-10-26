@@ -9,7 +9,7 @@
 //! so the roll is built: the body travels by a speed curve through the motor (fast off the mark,
 //! easing to a stop) while the model, crouched in StealthStand, turns one forward somersault
 //! under the body ([`crate::actor::ModelFrame`]). Hits pass through it in its invulnerability
-//! window ([`Action::invulnerable`]). With the Dark Souls cache loaded ([`crate::dsclip`]) the
+//! window ([`Action::invulnerable`]). With the Dark Souls cache loaded ([`crate::motion_clip`]) the
 //! roll is Dark Souls' own: its clip poses the rig, its root motion moves the body, and its
 //! events set the invulnerability and the cancel. A pushed stick ends any evade from its cancel
 //! window, as movement cancels a Dark Souls roll's stand-up.
@@ -374,9 +374,9 @@ pub(crate) fn act(
         Local<Option<f32>>,
     ),
     targets: Query<(&GlobalTransform, &crate::hits::Hurtbox), Without<Avatar>>,
-    ds: (
-        Option<Res<crate::dsclip::DsRoll>>,
-        Option<Res<crate::dsclip::DsMoves>>,
+    reference: (
+        Option<Res<crate::motion_clip::EvadeClips>>,
+        Option<Res<crate::motion_clip::WeaponClips>>,
         Option<Res<crate::reaction::PlayerReacts>>,
         Option<Res<crate::weapons::Ready>>,
     ),
@@ -390,15 +390,21 @@ pub(crate) fn act(
             Option<&ModelAnimations>,
             Option<&mut AnimationPlayer>,
             Option<&mut AnimationTransitions>,
+            Option<&crate::motor::swim::Swimming>,
         ),
         With<Avatar>,
     >,
 ) {
-    let Ok((mut xf, m, mut intent, mut action, mut stamina, anims, player, transitions)) =
+    let Ok((mut xf, m, mut intent, mut action, mut stamina, anims, player, transitions, swimming)) =
         avatar.single_mut()
     else {
         return;
     };
+    // Afloat there is no swinging, rolling or guarding: the stroke is all the body does.
+    if swimming.is_some_and(|s| s.on) && !action.owns_body() {
+        stamina.tick(time.delta_secs(), false);
+        return;
+    }
     // An open inventory holds the body still; a quest screen holds its actions only, the player may
     // walk about while talking.
     if loot_screen.blocks_actions(real.elapsed_secs()) && !action.owns_body() {
@@ -408,7 +414,7 @@ pub(crate) fn act(
         stamina.tick(time.delta_secs(), false);
         return;
     }
-    let (ds_roll, ds_moves, reels, weapon_ready) = ds;
+    let (evade_clips, weapon_clips, reels, weapon_ready) = reference;
     let (defense, scripted_guard, scripted_parry, parry_after, mut next_parry, mut reactive_parry) =
         defense;
     let dt = time.delta_secs();
@@ -447,7 +453,7 @@ pub(crate) fn act(
     let clip = anims.and_then(|a| a.find(ATTACK_1H));
     let swing_len = clip.map_or(0.8, |c| c.duration / ATTACK_RATE);
     // The swings this body can make: Dark Souls' from the cache, else the procedural one.
-    let moves = ds_moves
+    let moves = weapon_clips
         .as_deref()
         .map_or_else(|| Moveset::procedural(swing_len), |d| d.moveset);
     // A heavy press needs a heavy attack, which only the Dark Souls moveset has.
@@ -460,16 +466,18 @@ pub(crate) fn act(
     if parry_due {
         *reactive_parry = None;
     }
-    let ranged = ds_moves.as_ref().is_some_and(|m| m.projectile.is_some());
+    let ranged = weapon_clips
+        .as_ref()
+        .is_some_and(|m| m.projectile.is_some());
     let parry = defense.is_some()
         && !ranged
-        && !ds_moves.as_ref().is_some_and(|m| m.two_handed)
+        && !weapon_clips.as_ref().is_some_and(|m| m.two_handed)
         && ((live && parry_pressed(&settings.binds, &keys, &buttons, &gamepads, captured))
             || scripted_parry.is_some_and(|s| s.0.due(&mut next_parry, now))
             || parry_due);
     let guard = defense.is_some()
         && !ranged
-        && ds_moves
+        && weapon_clips
             .as_ref()
             .is_none_or(|m| m.guard.is_none_or(|g| g.2))
         && ((live && guard_held(&settings.binds, &keys, &buttons, &gamepads, captured))
@@ -493,13 +501,13 @@ pub(crate) fn act(
         // The controller has written the stick's camera-relative push.
         stick: dodge_stick.unwrap_or(intent.dir),
         facing: *xf.forward(),
-        roll: ds_roll.as_deref().map_or(ROLL, |r| r.spec),
-        ds_roll: ds_roll.is_some(),
-        backstep: ds_roll
+        roll: evade_clips.as_deref().map_or(ROLL, |r| r.spec),
+        evade_clips: evade_clips.is_some(),
+        backstep: evade_clips
             .as_deref()
             .and_then(|r| r.back.as_ref())
             .map_or(BACKSTEP, |b| b.spec),
-        ds_backstep: ds_roll.as_deref().is_some_and(|r| r.back.is_some()),
+        clip_backstep: evade_clips.as_deref().is_some_and(|r| r.back.is_some()),
         guard,
         defense: defense.as_deref().map(|d| d.specs),
     };
@@ -511,8 +519,8 @@ pub(crate) fn act(
                 .expect("a swing that started is in the moveset");
             stamina.spend(spec.cost);
             // The procedural swing plays the WoW clip; a Dark Souls move poses the rig itself
-            // ([`crate::dsclip`]).
-            if !moves.ds {
+            // ([`crate::motion_clip`]).
+            if !moves.reference {
                 if let (Some(c), Some(mut p), Some(mut tr)) = (clip, player, transitions) {
                     play_once(&mut p, &mut tr, c.node, ATTACK_RATE, chained);
                 }
@@ -537,8 +545,8 @@ pub(crate) fn act(
                 // The roll turns the body to where it goes; a backstep keeps its facing.
                 xf.rotation = Quat::from_rotation_y(crate::controller::yaw_of(e.dir));
             }
-            // The DS roll poses the rig from its own clip ([`crate::dsclip`]).
-            if !e.ds {
+            // The DS roll poses the rig from its own clip ([`crate::motion_clip`]).
+            if !e.reference {
                 if let (Some(a), Some(mut p), Some(mut tr)) = (anims, player, transitions) {
                     play_evade(a, &mut p, &mut tr, kind);
                 }
@@ -574,17 +582,17 @@ pub(crate) fn act(
     stamina.tick(dt, action.owns_body());
     match action.state {
         ActionState::Attack(s) => {
-            let ds_clip = ds_moves
+            let project_clip = weapon_clips
                 .as_deref()
                 .and_then(|d| d.clip(s.kind))
-                .filter(|_| s.ds);
-            *intent = match ds_clip {
+                .filter(|_| s.reference);
+            *intent = match project_clip {
                 // A Dark Souls move: this frame's share of its clip's root motion, along the
                 // facing, recoil included. The motor stops it at a body.
                 Some(c) => {
                     let prev = (s.t - dt).max(0.0);
-                    let step = (crate::dsclip::progress(&c.wow, s.t)
-                        - crate::dsclip::progress(&c.wow, prev))
+                    let step = (crate::motion_clip::progress(&c.wow, s.t)
+                        - crate::motion_clip::progress(&c.wow, prev))
                         * xf.scale.y;
                     root_step(*xf.forward(), step, dt)
                 }
@@ -609,16 +617,22 @@ pub(crate) fn act(
             // This frame's share of the evade's distance, as a speed along its direction: the DS
             // roll's own root motion, or the procedural curve.
             let prev = (e.t - dt).max(0.0);
-            let step = match (e.ds, e.kind, ds_roll.as_deref()) {
+            let step = match (e.reference, e.kind, evade_clips.as_deref()) {
                 // Root motion is in model units; the body's scale (1 for HumanMale) makes it world.
                 (true, EvadeKind::Roll, Some(r)) => {
-                    (crate::dsclip::progress(&r.wow, e.t) - crate::dsclip::progress(&r.wow, prev))
+                    (crate::motion_clip::progress(&r.wow, e.t)
+                        - crate::motion_clip::progress(&r.wow, prev))
                         * xf.scale.y
                 }
                 // The DS backstep's root motion runs backwards, and so does `e.dir`: the distance
                 // covered along it is the clip's travel the other way.
-                (true, EvadeKind::Backstep, Some(crate::dsclip::DsRoll { back: Some(b), .. })) => {
-                    (crate::dsclip::progress(&b.wow, prev) - crate::dsclip::progress(&b.wow, e.t))
+                (
+                    true,
+                    EvadeKind::Backstep,
+                    Some(crate::motion_clip::EvadeClips { back: Some(b), .. }),
+                ) => {
+                    (crate::motion_clip::progress(&b.wow, prev)
+                        - crate::motion_clip::progress(&b.wow, e.t))
                         * xf.scale.y
                 }
                 _ => {
@@ -632,8 +646,10 @@ pub(crate) fn act(
                 jump: false,
             };
         }
-        // Reeling or fallen, the body stands where it is.
-        ActionState::Stagger { .. } | ActionState::Dead => *intent = MoveIntent::default(),
+        // Reeling or fallen, or committed to a cast, the body stands where it is.
+        ActionState::Stagger { .. } | ActionState::Dead | ActionState::Cast(_) => {
+            *intent = MoveIntent::default();
+        }
         // A reaction that travels (a knockdown) carries the body through its clip; see [`reel_step`].
         ActionState::Reel(r) => *intent = reel_step(&r, reels.as_deref(), &xf, dt),
         ActionState::Defend(d) => {
@@ -644,8 +660,8 @@ pub(crate) fn act(
                 *intent = defense.as_deref().and_then(|k| k.clip(d.kind)).map_or_else(
                     MoveIntent::default,
                     |c| {
-                        let motion = crate::dsclip::root_offset(&c.wow, d.t)
-                            - crate::dsclip::root_offset(&c.wow, (d.t - dt).max(0.0));
+                        let motion = crate::motion_clip::root_offset(&c.wow, d.t)
+                            - crate::motion_clip::root_offset(&c.wow, (d.t - dt).max(0.0));
                         let world = xf.rotation * Vec3::new(motion.x, 0.0, motion.y) * xf.scale.y;
                         root_step(world.normalize_or_zero(), world.length(), dt)
                     },
@@ -674,7 +690,8 @@ fn reel_step(
         return MoveIntent::default();
     };
     let prev = (r.t - dt).max(0.0);
-    let d = crate::dsclip::root_offset(&c.wow, r.t) - crate::dsclip::root_offset(&c.wow, prev);
+    let d = crate::motion_clip::root_offset(&c.wow, r.t)
+        - crate::motion_clip::root_offset(&c.wow, prev);
     let world = xf.rotation * Vec3::new(d.x, 0.0, d.y) * xf.scale.y;
     root_step(world.normalize_or_zero(), world.length(), dt)
 }
@@ -720,13 +737,26 @@ pub fn tumble_transform(angle: f32) -> Transform {
 }
 
 /// Turns the avatar's model through the roll's somersault; identity otherwise.
-fn tumble(avatar: Query<(&Action, &ModelFrame), With<Avatar>>, mut frames: Query<&mut Transform>) {
-    for (action, frame) in &avatar {
+fn tumble(
+    avatar: Query<(&Action, &ModelFrame, Option<&crate::motor::swim::Swimming>), With<Avatar>>,
+    mut frames: Query<&mut Transform>,
+) {
+    for (action, frame, swimming) in &avatar {
         let angle = action.evading().map_or(0.0, Evade::tumble);
-        let want = if angle == 0.0 {
-            Transform::IDENTITY
-        } else {
+        // A swimmer diving or climbing leans the model along the stroke, about the chest.
+        let lean = swimming.filter(|s| s.on).map_or(0.0, |s| s.pitch);
+        let want = if angle != 0.0 {
             tumble_transform(angle)
+        } else if lean != 0.0 {
+            let turn = Quat::from_rotation_x(lean);
+            let pivot = Vec3::Y * 1.0;
+            Transform {
+                translation: pivot - turn * pivot,
+                rotation: turn,
+                scale: Vec3::ONE,
+            }
+        } else {
+            Transform::IDENTITY
         };
         if let Ok(mut xf) = frames.get_mut(frame.0) {
             if *xf != want {
@@ -806,6 +836,9 @@ fn trace(
                 d.t,
                 d.active()
             ),
+            ActionState::Cast(c) => {
+                format!("cast {} t={:.2}/{:.2}", c.spell, c.t, c.spec.duration)
+            }
             ActionState::Idle => "idle".into(),
         };
         info!("action t={now:6.2} {phase} stamina={:.1}", s.cur);

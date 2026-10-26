@@ -18,6 +18,8 @@ pub struct Params {
     npc_behavior: Param,
     npc_attack: Param,
     think: Param,
+    magic: Param,
+    bullet: Param,
 }
 
 /// What a weapon row says about its moves.
@@ -83,6 +85,16 @@ pub struct NpcAttack {
     pub knock: f32,
 }
 
+/// A creature's bullet ([`Params::npc_bullet`]): its `Bullet` row id, the row that hits (the explosion it spawns, or
+/// itself) and that row's attack.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NpcBullet {
+    pub bullet: i32,
+    pub hit_bullet: i32,
+    pub row: BulletRow,
+    pub attack: Option<NpcAttack>,
+}
+
 /// An `NpcThinkParam` row's distance bands (DS metres).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Think {
@@ -90,6 +102,43 @@ pub struct Think {
     pub mid: f32,
     pub far: f32,
     pub out: f32,
+}
+
+/// A `Magic` row: what a spell flies (`refCategory` 1: `refId` is a `Bullet` row).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MagicRow {
+    pub ref_id: i64,
+    pub ref_category: i64,
+    pub ref_type: i64,
+}
+
+/// A `Bullet` row: a missile's flight in Dark Souls metres, seconds and degrees.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BulletRow {
+    pub life: f32,
+    pub dist: f32,
+    pub init_speed: f32,
+    pub max_speed: f32,
+    pub accel_time: f32,
+    pub gravity: f32,
+    pub homing_deg: i64,
+    pub radius: f32,
+    /// `hitRadiusMax`: how wide an explosion spreads (-1: it does not).
+    pub radius_max: f32,
+    pub hit_bullet: i64,
+    /// `atkId_Bullet`: the `AtkParam_Pc` row the bullet hits with (0: it carries none).
+    pub atk_id: i64,
+}
+
+/// What a spell does where it lands, read from the attack row of its last bullet (Dark Souls metres).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpellBlow {
+    /// How wide the blast spreads (0: a plain hit with no splash).
+    pub blast: f32,
+    /// `knockbackDist`, `dmgLevel` (the flinch level) and `atkSuperArmor` (the poise damage).
+    pub knock: f32,
+    pub level: i64,
+    pub poise: f32,
 }
 
 pub fn load(dsr: &Path) -> Result<Params> {
@@ -124,6 +173,8 @@ pub fn load(dsr: &Path) -> Result<Params> {
         npc_behavior: take("BehaviorParam")?,
         npc_attack: take("AtkParam_Npc")?,
         think: take("NpcThinkParam")?,
+        magic: take("Magic")?,
+        bullet: take("Bullet")?,
     })
 }
 
@@ -198,7 +249,42 @@ impl Params {
     }
 
     pub fn npc_guard_attack(&self, variation: i64, judge: i32) -> Result<GuardAttack> {
-        let b = &self.npc_behavior;
+        self.guard_attack(
+            &self.npc_behavior,
+            &self.npc_attack,
+            "NPC",
+            None,
+            variation,
+            judge,
+        )
+    }
+
+    /// Guard behavior of an actual PC weapon blow, used when a creature borrows that motion.
+    pub fn player_guard_attack(
+        &self,
+        weapon: i32,
+        variation: i64,
+        judge: i32,
+    ) -> Result<GuardAttack> {
+        self.guard_attack(
+            &self.behavior,
+            &self.attack,
+            "PC",
+            Some(weapon),
+            variation,
+            judge,
+        )
+    }
+
+    fn guard_attack(
+        &self,
+        b: &Param,
+        a: &Param,
+        source: &str,
+        weapon: Option<i32>,
+        variation: i64,
+        judge: i32,
+    ) -> Result<GuardAttack> {
         let rows: Vec<_> = (0..b.len())
             .filter(|&r| {
                 matches!((b.int(r, "variationId"), b.int(r, "behaviorJudgeId")),
@@ -207,18 +293,29 @@ impl Params {
             .collect();
         ensure!(
             rows.len() == 1,
-            "BehaviorParam variation {variation}, judge {judge}: {} rows",
+            "{source} behavior variation {variation}, judge {judge}: {} rows",
             rows.len()
         );
         let row = rows[0];
         ensure!(b.int(row, "refType")? == 0, "guard attack is not an attack");
         let id = i32::try_from(b.int(row, "refId")?)?;
-        let a = &self.npc_attack;
         let r = a
             .row_of(id)
-            .with_context(|| format!("AtkParam_Npc has no row {id}"))?;
+            .with_context(|| format!("{source} attack has no row {id}"))?;
+        // PC attacks carry their stamina budget in the weapon and atkStamCorrection,
+        // while their raw guardAtkRate is zero. Preserve the existing NPC cache contract.
+        let rate = match weapon {
+            Some(_) if a.int(r, "disableStaminaAttack")? != 0 => 0,
+            Some(weapon) => {
+                let wr = self.weapon.row_of(weapon).context("PC guard weapon")?;
+                let base = self.weapon.int(wr, "attackBaseStamina")? as f32;
+                let correction = a.int(r, "atkStamCorrection")? as f32 / 100.0;
+                (base * correction + a.int(r, "atkStam")? as f32).round() as i64
+            }
+            None => a.int(r, "guardAtkRate")?,
+        };
         Ok(GuardAttack {
-            rate: a.int(r, "guardAtkRate")?,
+            rate,
             unblockable: a.int(r, "disableGuard")? != 0 || a.int(r, "throwFlag")? != 0,
         })
     }
@@ -311,10 +408,16 @@ impl Params {
             "BehaviorParam row {id} is not an attack"
         );
         let atk = i32::try_from(b.int(row, "refId")?).context("refId")?;
+        self.npc_atk(atk)
+            .with_context(|| format!("BehaviorParam row {id}"))
+    }
+
+    /// The `AtkParam_Npc` row `atk`.
+    pub fn npc_atk(&self, atk: i32) -> Result<NpcAttack> {
         let a = &self.npc_attack;
         let arow = a
             .row_of(atk)
-            .with_context(|| format!("AtkParam_Npc has no row {atk} (BehaviorParam row {id})"))?;
+            .with_context(|| format!("AtkParam_Npc has no row {atk}"))?;
         Ok(NpcAttack {
             phys: a.int(arow, "atkPhys")?,
             poise: a.int(arow, "atkSuperArmor")?,
@@ -323,6 +426,121 @@ impl Params {
             radius2: a.float(arow, "hit1_Radius")?,
             stop: a.float(arow, "hitStopTime")?,
             knock: a.float(arow, "knockbackDist")?,
+        })
+    }
+
+    /// The magic damage (`atkMag`) of the `AtkParam_Npc` row `atk`: a blast of the Abyss carries no physical damage.
+    pub fn npc_atk_magic(&self, atk: i32) -> Result<i64> {
+        let a = &self.npc_attack;
+        let arow = a
+            .row_of(atk)
+            .with_context(|| format!("AtkParam_Npc has no row {atk}"))?;
+        a.int(arow, "atkMag")
+    }
+
+    /// A creature's bullet: the `BehaviorParam` row with this variation and judge whose `refType` is 1 (a
+    /// `Bullet` row), that bullet, and the attack it (or the explosion it spawns, `HitBulletID`) hits with
+    /// (`atkId_Bullet` is an `AtkParam_Npc` row for a creature's bullet).
+    pub fn npc_bullet(&self, variation: i64, judge: i32) -> Result<NpcBullet> {
+        let b = &self.npc_behavior;
+        let row = (0..b.len())
+            .find(|&r| {
+                matches!(
+                    (b.int(r, "variationId"), b.int(r, "behaviorJudgeId"), b.int(r, "refType")),
+                    (Ok(v), Ok(j), Ok(1)) if v == variation && j == i64::from(judge)
+                )
+            })
+            .with_context(|| {
+                format!("BehaviorParam has no bullet row for variation {variation}, judge {judge}")
+            })?;
+        let id = i32::try_from(b.int(row, "refId")?).context("refId")?;
+        let first = self.bullet(id)?;
+        let (hit_id, last) = if first.hit_bullet > 0 {
+            let h = i32::try_from(first.hit_bullet).context("HitBulletID")?;
+            (h, self.bullet(h)?)
+        } else {
+            (id, first)
+        };
+        let attack = if last.atk_id > 0 {
+            Some(self.npc_atk(i32::try_from(last.atk_id).context("atkId_Bullet")?)?)
+        } else {
+            None
+        };
+        Ok(NpcBullet {
+            bullet: id,
+            hit_bullet: hit_id,
+            row: last,
+            attack,
+        })
+    }
+
+    /// The `Magic` row `id` (3000 is the first sorcery, 4000 the first pyromancy).
+    pub fn magic(&self, id: i32) -> Result<MagicRow> {
+        let p = &self.magic;
+        let r = p
+            .row_of(id)
+            .with_context(|| format!("Magic has no row {id}"))?;
+        Ok(MagicRow {
+            ref_id: p.int(r, "refId")?,
+            ref_category: p.int(r, "refCategory")?,
+            ref_type: p.int(r, "refType")?,
+        })
+    }
+
+    /// The `Bullet` row `id` (the spellings `Vellocity` are the install's).
+    pub fn bullet(&self, id: i32) -> Result<BulletRow> {
+        let p = &self.bullet;
+        let r = p
+            .row_of(id)
+            .with_context(|| format!("Bullet has no row {id}"))?;
+        Ok(BulletRow {
+            life: p.float(r, "life")?,
+            dist: p.float(r, "dist")?,
+            init_speed: p.float(r, "initVellocity")?,
+            max_speed: p.float(r, "maxVellocity")?,
+            accel_time: p.float(r, "accelTime")?,
+            gravity: p.float(r, "gravityInRange")?,
+            homing_deg: p.int(r, "homingAngle")?,
+            radius: p.float(r, "hitRadius")?,
+            radius_max: p.float(r, "hitRadiusMax")?,
+            hit_bullet: p.int(r, "HitBulletID")?,
+            atk_id: p.int(r, "atkId_Bullet")?,
+        })
+    }
+
+    /// What the spell `magic` does where it lands: the attack row of the bullet that does the hitting
+    /// (the explosion its bullet spawns, else the bullet itself) and how wide that explosion spreads.
+    pub fn spell_blow(&self, magic: i32) -> Result<SpellBlow> {
+        let m = self.magic(magic)?;
+        ensure!(
+            m.ref_category == 1,
+            "Magic {magic}: refId is not a Bullet row"
+        );
+        let first = self.bullet(i32::try_from(m.ref_id).context("refId")?)?;
+        let spreads = first.hit_bullet >= 0;
+        let last = if spreads {
+            self.bullet(i32::try_from(first.hit_bullet).context("HitBulletID")?)?
+        } else {
+            first
+        };
+        ensure!(
+            last.atk_id > 0,
+            "Magic {magic}: its last bullet carries no attack row"
+        );
+        let a = &self.attack;
+        let atk = i32::try_from(last.atk_id).context("atkId_Bullet")?;
+        let row = a
+            .row_of(atk)
+            .with_context(|| format!("AtkParam_Pc has no row {atk} (Magic {magic})"))?;
+        Ok(SpellBlow {
+            blast: if spreads {
+                last.radius_max.max(last.radius)
+            } else {
+                0.0
+            },
+            knock: a.float(row, "knockbackDist")?,
+            level: a.int(row, "dmgLevel")?,
+            poise: a.int(row, "atkSuperArmor")? as f32,
         })
     }
 
@@ -513,5 +731,55 @@ mod tests {
             (1, 2)
         );
         assert_eq!(p.behavior(2300, 0).unwrap().poise, 0.0);
+    }
+
+    #[test]
+    fn soul_arrow_and_fireball_fly_as_the_survey_read_them() {
+        let Ok(dir) = std::env::var("DSR_DIR") else {
+            return;
+        };
+        let p = load(Path::new(&dir)).unwrap();
+        let soul_magic = p.magic(3000).unwrap();
+        assert_eq!(soul_magic.ref_category, 1, "refId is a Bullet row");
+        let soul = p.bullet(soul_magic.ref_id as i32).unwrap();
+        assert_eq!(
+            (soul.life, soul.max_speed, soul.homing_deg),
+            (1.1, 30.0, 40)
+        );
+        assert!((soul.radius - 0.1).abs() < 1.0e-6);
+        let fire = p.bullet(p.magic(4000).unwrap().ref_id as i32).unwrap();
+        assert_eq!(
+            (fire.max_speed, fire.gravity, fire.hit_bullet),
+            (15.0, 9.8, 6010)
+        );
+        assert!(p.magic(1).is_err(), "Magic rows start at 3000");
+        assert!(p.bullet(1_999_999).is_err());
+    }
+
+    #[test]
+    fn a_spells_blow_is_what_its_last_bullet_hits_with() {
+        let Ok(dir) = std::env::var("DSR_DIR") else {
+            return;
+        };
+        let p = load(Path::new(&dir)).unwrap();
+        let fire = p.spell_blow(4000).unwrap();
+        assert_eq!(
+            (fire.blast, fire.knock, fire.level, fire.poise),
+            (1.0, 1.2, 3, 40.0),
+            "Bullet 6000 flies, 6010 is the explosion (1.0 m at its widest), AtkParam_Pc 13000"
+        );
+        let arrow = p.spell_blow(3000).unwrap();
+        assert_eq!(
+            (arrow.blast, arrow.knock, arrow.level, arrow.poise),
+            (0.0, 0.7, 1, 20.0),
+            "Soul Arrow hits with the bullet itself: no blast"
+        );
+        let flame = p.spell_blow(4100).unwrap();
+        assert_eq!(
+            (flame.blast, flame.knock, flame.level, flame.poise),
+            (0.6, 0.8, 2, 40.0),
+            "Combustion: Bullet 7000 spawns the flame 7010"
+        );
+        assert!(p.spell_blow(1).is_err());
     }
 }

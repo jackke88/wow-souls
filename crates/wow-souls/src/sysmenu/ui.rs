@@ -19,11 +19,9 @@ use crate::settings::binds::{parse_chord, parse_pad, Action, Chord};
 use crate::settings::{MenuUp, Settings};
 use crate::settle::Phase;
 
-const IVORY: Color = Color::srgb(0.88, 0.85, 0.77);
-const GOLD: Color = Color::srgb(0.92, 0.76, 0.28);
-const MUTED: Color = Color::srgb(0.62, 0.6, 0.54);
+use crate::hud::theme::{GOLD, IVORY, MUTED};
 const WARN: Color = Color::srgb(0.85, 0.52, 0.34);
-const DIM: Color = Color::srgba(0.0, 0.0, 0.0, 0.5);
+const DIM: Color = Color::srgba(0.0, 0.0, 0.0, 0.28);
 const INK: Color = Color::srgba(0.04, 0.03, 0.02, 0.9);
 
 /// A waiting pad capture gives up after this many seconds (a pad cannot press Esc).
@@ -79,6 +77,14 @@ fn parse_script(text: &str) -> Vec<(f32, Step)> {
 struct Root;
 
 #[derive(Component)]
+struct MenuPanel;
+#[derive(Component)]
+struct MenuGlyph(usize);
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct MenuInput;
+
+#[derive(Component)]
 struct Title;
 
 #[derive(Component)]
@@ -120,9 +126,15 @@ pub fn plugin(app: &mut App) {
             (drive, sync_root, refresh)
                 .chain()
                 .after(toggle)
+                .in_set(MenuInput)
                 .run_if(in_state(Phase::Playing).or(in_state(Phase::Menu))),
         )
-        .add_systems(Update, pause.run_if(in_state(Phase::Playing)));
+        .add_systems(
+            Update,
+            pause
+                .after(crate::cartography::view::Input)
+                .run_if(in_state(Phase::Playing)),
+        );
 }
 
 fn load_look(
@@ -130,11 +142,7 @@ fn load_look(
     mut fonts: ResMut<Assets<Font>>,
     art: Option<Res<crate::hud::art::HudArt>>,
 ) {
-    let font = std::fs::read("C:/Windows/Fonts/georgia.ttf")
-        .ok()
-        .and_then(|b| Font::try_from_bytes(b).ok())
-        .map(|f| fonts.add(f))
-        .unwrap_or_default();
+    let font = crate::hud::font::project_font(&mut fonts);
     let parchment = art
         .as_deref()
         .map(|a| a.sprite_image("soul_param/bg_parchment_0"))
@@ -194,7 +202,7 @@ fn toggle(
 }
 
 /// The world stands still while the menu is up (the player's option).
-fn pause(menu: Res<SysMenu>, settings: Res<Settings>, mut time: ResMut<Time<Virtual>>) {
+pub(crate) fn pause(menu: Res<SysMenu>, settings: Res<Settings>, mut time: ResMut<Time<Virtual>>) {
     let want = menu.open && settings.game.pause;
     if want && !time.is_paused() {
         time.pause();
@@ -224,6 +232,10 @@ fn drive(
 ) {
     if !menu.open {
         *waited = 0.0;
+        return;
+    }
+    if matches!(menu.page, super::Page::Map | super::Page::Talents) {
+        wheel.clear();
         return;
     }
     // The press that opened the menu was this frame's; the menu's first press is the next.
@@ -378,7 +390,10 @@ fn sync_root(
     look: Option<Res<Look>>,
     roots: Query<Entity, With<Root>>,
 ) {
-    match (menu.open, roots.is_empty()) {
+    match (
+        menu.open && !matches!(menu.page, super::Page::Map | super::Page::Talents),
+        roots.is_empty(),
+    ) {
         (true, true) => {
             let Some(look) = look else { return };
             spawn(&mut commands, &look);
@@ -416,6 +431,7 @@ fn spawn(commands: &mut Commands, look: &Look) {
         ))
         .with_children(|root| {
             let mut panel = root.spawn((
+                MenuPanel,
                 Node {
                     width: px(700),
                     flex_direction: FlexDirection::Column,
@@ -425,7 +441,9 @@ fn spawn(commands: &mut Commands, look: &Look) {
                 },
                 BackgroundColor(INK),
             ));
-            if let Some(image) = &look.parchment {
+            if crate::hud::theme::enabled() {
+                crate::hud::theme::dress(&mut panel);
+            } else if let Some(image) = &look.parchment {
                 let mut img = ImageNode::new(image.clone());
                 img.image_mode = NodeImageMode::Sliced(TextureSlicer {
                     border: BorderRect::all(18.0),
@@ -451,7 +469,29 @@ fn spawn(commands: &mut Commands, look: &Look) {
                         BackgroundColor(Color::NONE),
                     ))
                     .with_children(|row| {
-                        row.spawn((RowLabel(i), Text::new(""), font(21.0), TextColor(IVORY)));
+                        if crate::hud::theme::enabled() && i < 8 {
+                            row.spawn((
+                                MenuGlyph(i),
+                                crate::hud::theme::Surface::Icon([0, 1, 2, 3, 3, 4, 4, 5][i]),
+                                Node {
+                                    width: px(44),
+                                    height: px(44),
+                                    min_width: px(44),
+                                    margin: UiRect::right(px(14)),
+                                    ..default()
+                                },
+                            ));
+                        }
+                        row.spawn((
+                            RowLabel(i),
+                            Text::new(""),
+                            font(21.0),
+                            TextColor(IVORY),
+                            Node {
+                                flex_grow: 1.0,
+                                ..default()
+                            },
+                        ));
                         row.spawn((RowValue(i), Text::new(""), font(21.0), TextColor(MUTED)));
                     });
                 }
@@ -467,10 +507,7 @@ fn spawn(commands: &mut Commands, look: &Look) {
                     },
                 ));
                 p.spawn((
-                    Text::new(
-                        "Up / Down  Move      Left / Right  Change      Enter / A  Select      \
-                         Delete  Clear a key      Esc / B  Back",
-                    ),
+                    Text::new("Arrows / D-pad: Navigate     Enter / A: Select     Esc / B: Back"),
                     font(12.0),
                     TextColor(MUTED),
                 ));
@@ -500,7 +537,12 @@ fn refresh(
             Without<RowValue>,
         ),
     >,
-    mut boxes: Query<(&RowBox, &mut Node, &mut BackgroundColor)>,
+    mut boxes: Query<(&RowBox, &mut Node, &mut BackgroundColor), Without<MenuPanel>>,
+    mut panels: Query<&mut Node, (With<MenuPanel>, Without<RowBox>)>,
+    mut glyphs: Query<
+        (&MenuGlyph, &mut Node, Option<&mut ImageNode>),
+        (Without<MenuPanel>, Without<RowBox>),
+    >,
     mut labels: Query<
         (&RowLabel, &mut Text, &mut TextColor),
         (Without<RowValue>, Without<Title>, Without<NoteLine>),
@@ -512,6 +554,16 @@ fn refresh(
 ) {
     if !menu.open {
         return;
+    }
+    if crate::hud::theme::enabled() {
+        for mut node in &mut panels {
+            let root_page = menu.page == super::Page::Root;
+            node.position_type = PositionType::Absolute;
+            node.left = px(34);
+            node.top = px(if root_page { 132 } else { 44 });
+            node.width = px(if root_page { 360 } else { 820 });
+            node.border = UiRect::axes(px(0), px(0.7));
+        }
     }
     let (rows, at) = menu.window(&settings);
     if let Ok(mut t) = title.single_mut() {
@@ -526,6 +578,13 @@ fn refresh(
         }
     }
     for (row, mut node, mut bg) in &mut boxes {
+        if crate::hud::theme::enabled() {
+            node.height = px(if menu.page == super::Page::Root {
+                48
+            } else {
+                30
+            });
+        }
         let want_display = if row.0 < rows.len() {
             Display::Flex
         } else {
@@ -535,12 +594,26 @@ fn refresh(
             node.display = want_display;
         }
         let shade = if row.0 == at && rows.get(row.0).is_some_and(|r| r.selectable()) {
-            Color::srgba(1.0, 0.9, 0.6, 0.1)
+            crate::hud::theme::SELECTED
         } else {
             Color::NONE
         };
         if bg.0 != shade {
             bg.0 = shade;
+        }
+    }
+    for (glyph, mut node, image) in &mut glyphs {
+        node.display = if menu.page == super::Page::Root {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if let Some(mut image) = image {
+            image.color = if glyph.0 == at {
+                Color::WHITE
+            } else {
+                Color::srgba(0.66, 0.66, 0.61, 0.88)
+            };
         }
     }
     for (row, mut text, mut color) in &mut labels {

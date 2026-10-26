@@ -5,6 +5,10 @@
 //! wow-souls-dsr list    [--dsr <dir>]
 //! wow-souls-dsr extract [--dsr <dir>] [--wow <Data dir>] [--out <dir>] [--roll <a00_NNNN>]
 //! wow-souls-dsr locomotion [--dsr <dir>] [--wow <Data dir>] [--out <dir>]   (the gait of every weapon set: <out>/locomotion.txt)
+//! wow-souls-dsr casts   [--dsr <dir>] [--wow <Data dir>] [--out <dir>]   (the Mage's cast clips: <out>/casts.txt)
+//! wow-souls-dsr casts-survey [--dsr <dir>] [--wow <Data dir>]   (every cast clip's flag windows; read-only)
+//! wow-souls-dsr bake-project --from cache/dsr --out anim/source   (all active clips/tables as project text)
+//! wow-souls-dsr setup --dsr <dir> --wow <Data dir> --project <repo> --out <anim dir>   (the player's own library, checked clip by clip)
 //! wow-souls-dsr loco    [--dsr <dir>] [--set a00] [--clips a00_0500,...]   (the player's locomotion clips, measured; read-only)
 //! wow-souls-dsr hud     [--dsr <dir>] [--out <dir>]      (the HUD's art and layout: <out>/hud)
 //! wow-souls-dsr survey  --chr <cNNNN> [--npc <NpcParam id>] [--dsr <dir>]   (read-only listing)
@@ -14,17 +18,21 @@
 mod basis;
 mod bonemap;
 mod cache;
+mod casts;
 mod dds;
 mod dsr;
 mod hud;
 mod loco;
 mod monster;
 mod moveset;
+mod names;
 mod params;
 mod probe;
+mod project;
 mod reacts;
 mod retarget;
 mod roll;
+mod setup;
 mod survey;
 mod wow;
 
@@ -47,6 +55,8 @@ struct Args {
     kit: Option<String>,
     clips: Vec<String>,
     set: Option<String>,
+    from: PathBuf,
+    project: PathBuf,
 }
 
 fn args() -> Result<Args> {
@@ -63,6 +73,8 @@ fn args() -> Result<Args> {
         kit: None,
         clips: Vec::new(),
         set: None,
+        from: DEFAULT_OUT.into(),
+        project: ".".into(),
     };
     while let Some(flag) = it.next() {
         let Some(value) = it.next() else {
@@ -78,10 +90,36 @@ fn args() -> Result<Args> {
             "--kit" => a.kit = Some(value),
             "--clips" => a.clips = value.split(',').map(str::to_string).collect(),
             "--set" => a.set = Some(value),
+            "--from" => a.from = value.into(),
+            "--project" => a.project = value.into(),
             other => bail!("unknown option {other}"),
         }
     }
     Ok(a)
+}
+
+/// `bake --clips a00_0535,... [--from cache/dsr] --out anim/source`: each player clip already retargeted onto the
+/// WoW body (`<from>/human_male/<clip>.wscl`) written as editable text (`wscl::text`, `<out>/<clip>.wsanim`). The
+/// Text remains source-derived DSR reference data; its project/Git policy is in `anim/README.md`.
+fn bake(from: &std::path::Path, clips: &[String], out: &std::path::Path) -> Result<()> {
+    anyhow::ensure!(!clips.is_empty(), "bake needs --clips");
+    std::fs::create_dir_all(out)?;
+    for name in clips {
+        let path = from.join("human_male").join(format!("{name}.wscl"));
+        let clip = wscl::Clip::read(&mut std::io::BufReader::new(std::fs::File::open(&path)?))
+            .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+        let text = wscl::text::write(&clip);
+        let to = out.join(format!("{name}.wsanim"));
+        std::fs::write(&to, &text)?;
+        println!(
+            "baked {name}: {} frames at {} fps, {} bones -> {}",
+            clip.frames.len(),
+            clip.fps,
+            clip.parents.len(),
+            to.display()
+        );
+    }
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -92,6 +130,8 @@ fn main() -> Result<()> {
         "weapons-survey" => moveset::survey(&a.dsr),
         "weapons" => cache::extract_weapons(&a.dsr, &a.wow, &a.out),
         "locomotion" => cache::extract_locomotion(&a.dsr, &a.wow, &a.out),
+        "casts" => casts::extract(&a.dsr, &a.wow, &a.out),
+        "casts-survey" => casts::survey(&a.dsr, &a.wow),
         "extract" => cache::extract(&a.dsr, &a.wow, &a.out, a.roll.as_deref()),
         "defense" => cache::extract_defense(&a.dsr, &a.wow, &a.out),
         "loot" => cache::extract_loot(&a.dsr, &a.wow, &a.out),
@@ -100,10 +140,13 @@ fn main() -> Result<()> {
             Some(chr) => survey::run(&a.dsr, chr, a.npc),
             None => bail!("survey needs --chr cNNNN"),
         },
+        "bake" => bake(&a.from, &a.clips, &a.out),
+        "bake-project" => project::export(&a.from, &a.out),
+        "setup" => setup::run(&a.dsr, &a.wow, &a.project, &a.out),
         "probe" => match &a.kit {
             Some(kit) => probe::run(&a.dsr, &a.wow, kit, &a.clips),
             None => bail!("probe needs --kit <name> --clips <a00_NNNN,...>"),
         },
-        _ => bail!("usage: wow-souls-dsr list|extract|defense|loot|weapons|locomotion|loco|hud|survey|probe [--dsr DIR] [--wow DATA_DIR] [--out DIR] [--roll a00_NNNN] [--chr cNNNN] [--npc ID]"),
+        _ => bail!("usage: wow-souls-dsr list|extract|bake|bake-project|setup|defense|loot|weapons|locomotion|casts|casts-survey|loco|hud|survey|probe [--dsr DIR] [--wow DATA_DIR] [--from CACHE] [--project DIR] [--out DIR] [--roll a00_NNNN] [--chr cNNNN] [--npc ID]"),
     }
 }

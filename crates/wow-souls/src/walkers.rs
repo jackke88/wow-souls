@@ -84,7 +84,10 @@ fn gap(a: Vec3, b: Vec3) -> f32 {
 fn npc_think(
     time: Res<Time>,
     avatar: Query<&Transform, (With<Avatar>, Without<Npc>)>,
-    mut npcs: Query<(&mut Transform, &Npc, &Origin, &mut Roam, &mut MoveIntent)>,
+    mut npcs: Query<
+        (&mut Transform, &Npc, &Origin, &mut Roam, &mut MoveIntent),
+        Without<crate::village::Citizen>,
+    >,
 ) {
     let Ok(player) = avatar.single() else {
         return;
@@ -127,11 +130,13 @@ fn exclude_walker_bodies(
     mut ex: ResMut<MoverTraceExclusions>,
     avatar: Query<&Transform, With<Avatar>>,
     bodies: Query<(&BodyCollider, &Transform), Without<Avatar>>,
+    world: Option<Res<crate::world::WorldBook>>,
 ) {
     let Ok(player) = avatar.single() else {
         return;
     };
-    let reach = crate::ring::sim() + EXCLUDE_MARGIN;
+    let reach =
+        crate::ring::sim().max(world.as_ref().map_or(0.0, |w| w.ring.despawn)) + EXCLUDE_MARGIN;
     ex.0.extend(
         bodies
             .iter()
@@ -147,10 +152,11 @@ fn clear_walker_exclusions(mut ex: ResMut<MoverTraceExclusions>) {
 /// Steps the motors of the critters and the NPCs that move: alive, inside the sim radius (or a
 /// critter in flight), asked to go somewhere or not yet on the ground. The rest are parked.
 #[allow(clippy::type_complexity)]
-fn move_walkers(
+pub(crate) fn move_walkers(
     time: Res<Time>,
     collide: WorldCollision,
     shape: Res<BodyShape>,
+    world: Option<Res<crate::world::WorldBook>>,
     avatar: Query<&Transform, (With<Avatar>, Without<Critter>, Without<Npc>)>,
     mut movers: Query<
         (
@@ -159,6 +165,7 @@ fn move_walkers(
             &MoveIntent,
             Option<&Reaction>,
             Option<&Critter>,
+            Has<crate::village::Citizen>,
         ),
         (Or<(With<Critter>, With<Npc>)>, Without<Avatar>),
     >,
@@ -168,13 +175,23 @@ fn move_walkers(
     };
     let player = player.translation;
     let sim = crate::ring::sim();
-    for (mut xf, mut m, intent, reaction, critter) in &mut movers {
+    for (mut xf, mut m, intent, reaction, critter, citizen) in &mut movers {
         if reaction == Some(&Reaction::Dead) {
             continue;
         }
         let idle = critter.is_none_or(|c| c.mood == Mood::Graze);
         let still = intent.speed == 0.0 || intent.dir.length_squared() < 1.0e-6;
-        if !crate::ring::simulated(gap(player, xf.translation), idle, sim) || (still && m.grounded)
+        let reach = if citizen {
+            sim.max(
+                world
+                    .as_ref()
+                    .map_or(crate::ring::RING.despawn, |w| w.ring.despawn),
+            )
+        } else {
+            sim
+        };
+        if !crate::ring::simulated(gap(player, xf.translation), idle, reach)
+            || (still && m.grounded)
         {
             if !m.grounded || m.velocity != Vec3::ZERO {
                 crate::npc::park(&mut m);

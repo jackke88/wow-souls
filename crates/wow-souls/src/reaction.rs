@@ -1,4 +1,4 @@
-//! The player's Dark Souls reactions from `cache/dsr/` (written by `wow-souls-dsr extract`): the
+//! The player's source-derived reactions from the tracked `anim/source/` library: the
 //! flinch clips (small, medium, large, four directions each), the knockdowns (thrown straight back
 //! or forward, invulnerable while down, a get-up at the end) and the death (a knockdown held on the
 //! frame where it lies), all retargeted onto the human, with the times the clip's own TAE flags let
@@ -14,8 +14,8 @@ use std::path::Path;
 use bevy::prelude::*;
 
 use crate::combat::ReelSpec;
-use crate::dsclip::read_clip;
 use crate::monster::best_by_push;
+use crate::motion_clip::read_clip;
 
 /// The flinch (or knockdown) class a blow of up to this level gets, in order: level 1 is small,
 /// 2 medium, 3 and 4 large, 5 and up the short knockdown (the kobold's body check is level 5).
@@ -46,7 +46,7 @@ pub const TRAVELS_OVER: f32 = 0.3;
 pub struct ReactClip {
     pub class: String,
     pub wow: wscl::Clip,
-    pub ds: wscl::Clip,
+    pub reference: wscl::Clip,
     /// `(forward, left)` of the head's push in the body's frame (negative forward: head back).
     pub push: Vec2,
     /// `(forward, left)` the clip's root motion throws the body (yd, the body's frame).
@@ -144,7 +144,7 @@ pub fn parse(text: &str, dir: &Path) -> Result<PlayerReacts, String> {
                     return Err(bad());
                 };
                 let wow = read_clip(dir, "human_male", clip)?;
-                let ds = read_clip(dir, "c0000", clip)?;
+                let reference = read_clip(dir, "human_reference", clip)?;
                 match bones {
                     None => bones = Some(wow.bones()),
                     Some(n) if n == wow.bones() => {}
@@ -170,7 +170,7 @@ pub fn parse(text: &str, dir: &Path) -> Result<PlayerReacts, String> {
                         invuln: (d1 > d0).then_some((d0, d1)),
                     },
                     wow,
-                    ds,
+                    reference,
                 });
             }
             Some("pdeath") => {
@@ -201,12 +201,12 @@ pub fn parse(text: &str, dir: &Path) -> Result<PlayerReacts, String> {
 
 /// Reads the kit from `dir`: a checked manifest, then [`parse`].
 pub fn load(dir: &Path) -> Result<PlayerReacts, String> {
-    let text = crate::dsclip::checked_manifest(dir)?;
+    let text = crate::motion_clip::checked_manifest(dir)?;
     parse(&text, dir)
 }
 
 fn startup(mut commands: Commands) {
-    match load(&crate::dsclip::cache_dir()) {
+    match load(&crate::motion_clip::cache_dir()) {
         Ok(k) => {
             for r in &k.reacts {
                 let s = &r.spec;
@@ -272,21 +272,22 @@ mod tests {
 
     fn put(dir: &Path, sub: &str, c: &wscl::Clip) {
         std::fs::create_dir_all(dir.join(sub)).unwrap();
-        c.write(
-            &mut std::fs::File::create(dir.join(sub).join(format!("{}.wscl", c.name))).unwrap(),
+        std::fs::write(
+            dir.join(sub).join(format!("{}.wsanim", c.name)),
+            wscl::text::write(c),
         )
         .unwrap();
     }
 
     const MANIFEST: &str = "\
-preact s a00_2000 push 0.187 -0.144 chain 0.600 evade 0.600 move 0.767 down 0.000 0.000
-preact s a00_2002 push -0.431 0.028 chain 0.600 evade 0.600 move 0.767 down 0.000 0.000
-preact m a00_2004 push 0.215 0.423 chain 1.033 evade 1.067 move 1.067 down 0.000 0.000
-preact m a00_2007 push -0.390 0.059 chain 1.033 evade 1.067 move 1.067 down 0.000 0.000
-preact down2 a00_2026 push -0.776 0.011 chain 0.8 evade 0.7 move 0.9 down 0.000 0.8
-preact down2 a00_2027 push 0.467 0.186 chain 0.8 evade 0.7 move 0.9 down 0.000 0.8
-pdeath a00_2026 push -0.776 0.011 hold 1.133
-pdeath a00_2027 push 0.467 0.186 hold 1.400
+preact s body_reaction_01 push 0.187 -0.144 chain 0.600 evade 0.600 move 0.767 down 0.000 0.000
+preact s body_reaction_03 push -0.431 0.028 chain 0.600 evade 0.600 move 0.767 down 0.000 0.000
+preact m body_reaction_05 push 0.215 0.423 chain 1.033 evade 1.067 move 1.067 down 0.000 0.000
+preact m body_reaction_08 push -0.390 0.059 chain 1.033 evade 1.067 move 1.067 down 0.000 0.000
+preact down2 body_reaction_27 push -0.776 0.011 chain 0.8 evade 0.7 move 0.9 down 0.000 0.8
+preact down2 body_reaction_28 push 0.467 0.186 chain 0.8 evade 0.7 move 0.9 down 0.000 0.8
+pdeath body_reaction_27 push -0.776 0.011 hold 1.133
+pdeath body_reaction_28 push 0.467 0.186 hold 1.400
 ";
 
     fn kit_dir(name: &str) -> std::path::PathBuf {
@@ -294,17 +295,17 @@ pdeath a00_2027 push 0.467 0.186 hold 1.400
             std::env::temp_dir().join(format!("wow-souls-reaction-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         for (c, root) in [
-            ("a00_2000", [0.0; 4]),
-            ("a00_2002", [0.0; 4]),
-            ("a00_2004", [0.0; 4]),
-            ("a00_2007", [0.0; 4]),
+            ("body_reaction_01", [0.0; 4]),
+            ("body_reaction_03", [0.0; 4]),
+            ("body_reaction_05", [0.0; 4]),
+            ("body_reaction_08", [0.0; 4]),
             // Thrown straight back (+Z) and straight forward (-Z), 3 yd.
-            ("a00_2026", [0.0, 0.0, 3.0, 0.0]),
-            ("a00_2027", [0.0, 0.0, -3.0, 0.0]),
+            ("body_reaction_27", [0.0, 0.0, 3.0, 0.0]),
+            ("body_reaction_28", [0.0, 0.0, -3.0, 0.0]),
         ] {
             let k = clip(c, root);
             put(&dir, "human_male", &k);
-            put(&dir, "c0000", &k);
+            put(&dir, "human_reference", &k);
         }
         dir
     }
@@ -358,9 +359,12 @@ pdeath a00_2027 push 0.467 0.186 hold 1.400
             ),
             (
                 "names no preact clip",
-                MANIFEST.replace("pdeath a00_2026", "pdeath a00_9999"),
+                MANIFEST.replace("pdeath body_reaction_27", "pdeath body_motion_9999"),
             ),
-            ("a00_2999.wscl", MANIFEST.replace("a00_2000", "a00_2999")),
+            (
+                "body_motion_2999.wsanim",
+                MANIFEST.replace("body_reaction_01", "body_motion_2999"),
+            ),
         ] {
             let err = parse(&text, &dir)
                 .err()
@@ -390,10 +394,10 @@ pdeath a00_2027 push 0.467 0.186 hold 1.400
         let dir = kit_dir("choose");
         let k = parse(MANIFEST, &dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
-        // Level 1 (small): the front blow pushes the head back, index 1 (a00_2002); behind, index 0.
+        // Level 1 (small): the front blow pushes the head back, index 1 (body_reaction_03); behind, index 0.
         assert_eq!(k.choose(1, Vec2::new(-1.0, 0.0)), Some(1));
         assert_eq!(k.choose(1, Vec2::new(1.0, 0.0)), Some(0));
-        // Level 2 (medium): from the side the head goes left, a00_2004 (+0.42 left).
+        // Level 2 (medium): from the side the head goes left, body_reaction_05 (+0.42 left).
         assert_eq!(k.choose(2, Vec2::new(0.1, 1.0)), Some(2));
         assert_eq!(k.choose(2, Vec2::new(-1.0, 0.0)), Some(3));
         // Level 5: the knockdown that throws the body the way the blow does.
@@ -405,6 +409,6 @@ pdeath a00_2027 push 0.467 0.186 hold 1.400
         assert_eq!(k.choose_death(Vec2::new(-1.0, 0.0)), Some(0));
         assert_eq!(k.choose_death(Vec2::new(1.0, 0.0)), Some(1));
         let (clip, hold) = k.death_clip(1).unwrap();
-        assert_eq!((clip.wow.name.as_str(), hold), ("a00_2027", 1.4));
+        assert_eq!((clip.wow.name.as_str(), hold), ("body_reaction_28", 1.4));
     }
 }

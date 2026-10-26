@@ -1,0 +1,112 @@
+entry	name	spawn_sites_including_alternates	category	models	project_kits	animation_work
+36	Harvest Golem	28	P1 – ny kroppsrigg	Creature\GolemHarvest\GolemHarvest.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+95	Defias Smuggler	73	Återanvändbar stridsrigg	Character\Human\Male\HumanMale.mdx; Character\Human\Female\HumanFemale.mdx	human_bandit; human_bandit_female	Befintliga rörelser; familjens variation och balans behöver speltestas
+98	Riverpaw Taskmaster	58	P1 – ny kroppsrigg	Creature\GnollMelee\GnollMelee.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+114	Harvest Watcher	35	P1 – ny kroppsrigg	Creature\GolemHarvest\GolemHarvest.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+115	Harvest Reaper	10	P1 – ny kroppsrigg	Creature\GolemHarvest\GolemHarvest.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+117	Riverpaw Gnoll	33	P1 – ny kroppsrigg	Creature\GnollMelee\GnollMelee.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+121	Defias Pathstalker	11	Återanvändbar stridsrigg	Character\Human\Female\HumanFemale.mdx; Character\Human\Male\HumanMale.mdx	human_bandit; human_bandit_female	Befintliga rörelser; familjens variation och balans behöver speltestas
+122	Defias Highwayman	28	Återanvändbar stridsrigg	Character\Human\Male\HumanMale.mdx; Character\Human\Male\HumanMale.mdx	human_bandit	Befintliga rörelser; familjens variation och balans behöver speltestas
+123	Riverpaw Mongrel	67	Återanvändbar stridsrigg	Creature\Gnoll\gnoll.mdx	gnoll	Befintliga rörelser; familjens variation och balans behöver speltestas
+124	Riverpaw Brute	26	P1 – ny kroppsrigg	Creature\GnollMelee\GnollMelee.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+125	Riverpaw Overseer	2	Återanvändbar stridsrigg	Creature\Gnoll\gnoll.mdx	gnoll	Befintliga rörelser; familjens variation och balans behöver speltestas
+126	Murloc Coastrunner	43	Återanvändbar stridsrigg	Creature\Murloc\Murloc.mdx	murloc	Befintliga rörelser; familjens variation och balans behöver speltestas
+127	Murloc Tidehunter	37	Återanvändbar stridsrigg	Creature\Murloc\Murloc.mdx	murloc	Befintliga rörelser; familjens variation och balans behöver speltestas
+154	Greater Fleshripper	13	P1 – ny kroppsrigg	Creature\CarrionBird\CarrionBird.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+157	Goretusk	54	Återanvändbar stridsrigg	Creature\Boar\Boar.mdx	boar	Befintliga rörelser; familjens variation och balans behöver speltestas
+171	Murloc Warrior	65	Återanvändbar stridsrigg	Creature\Murloc\Murloc.mdx	murloc	Befintliga rörelser; familjens variation och balans behöver speltestas
+199	Young Fleshripper	35	P1 – ny kroppsrigg	Creature\CarrionBird\CarrionBird.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+233	Farmer Saldean	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+234	Gryan Stoutmantle	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+235	Salma Saldean	1	Vänlig NPC	Character\Human\Female\HumanFemale.mdx	human_bandit_female	WoW idle/gång räcker; inga nya stridsanimationer planerade
+237	Farmer Furlbrow	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+238	Verna Furlbrow	1	Vänlig NPC	Character\Human\Female\HumanFemale.mdx	human_bandit_female	WoW idle/gång räcker; inga nya stridsanimationer planerade
+239	Grimbooze Thunderbrew	1	Vänlig NPC	Character\Dwarf\Male\DwarfMale.mdx	native_wow	WoW idle/gång räcker; inga nya stridsanimationer planerade
+240	Marshal Dughan	0	Utanför Westfall – uppdragsrelation	Character\Human\Male\HumanMale.mdx	human_bandit	Ingen lokal spawn
+261	Guard Thomas	0	Utanför Westfall – uppdragsrelation	Character\Human\Male\HumanMale.mdx	human_bandit	Ingen lokal spawn
+266	Wiley the Black	0	Utanför Westfall – uppdragsrelation	Character\Human\Male\HumanMale.mdx	human_bandit	Ingen lokal spawn
+267	Clerk Daltry	0	Utanför Westfall – uppdragsrelation	Character\Human\Male\HumanMale.mdx	human_bandit	Ingen lokal spawn
+294	Marshal Haggard	0	Utanför Westfall – uppdragsrelation	Character\Human\Male\HumanMale.mdx	human_bandit	Ingen lokal spawn
+332	Master Mathias Shaw	0	Utanför Westfall – uppdragsrelation	Character\Human\Male\HumanMale.mdx	human_bandit	Ingen lokal spawn
+344	Magistrate Solomon	0	Utanför Westfall – uppdragsrelation	Character\Human\Male\HumanMale.mdx	human_bandit	Ingen lokal spawn
+352	Dungar Longdrink	0	Utanför Westfall – uppdragsrelation	Character\Human\Male\HumanMale.mdx	human_bandit	Ingen lokal spawn
+391	Old Murk-Eye	1	P2 – namngiven fiende	Creature\Murloc\Murloc.mdx	murloc	Basrigg finns; unika attacker och encounter-sekvenser återstår att utforma
+392	Captain Grayson	1	Vänlig NPC	Creature\HumanMalePirateCaptain\HumanMalePirateCaptain.mdx	native_wow	WoW idle/gång räcker; inga nya stridsanimationer planerade
+449	Defias Knuckleduster	18	Återanvändbar stridsrigg	Character\Human\Female\HumanFemale.mdx; Character\Human\Male\HumanMale.mdx	human_bandit; human_bandit_female	Befintliga rörelser; familjens variation och balans behöver speltestas
+450	Defias Renegade Mage	2	P2 – kastare	Character\Human\Male\HumanMale.mdx; Character\Human\Female\HumanFemale.mdx	human_bandit; human_bandit_female	Kompatibel kroppsrigg finns; besvärjelser, kastsekvenser och projektilkoppling behöver färdigställas
+452	Riverpaw Bandit	40	Återanvändbar stridsrigg	Creature\Gnoll\gnoll.mdx	gnoll	Befintliga rörelser; familjens variation och balans behöver speltestas
+453	Riverpaw Mystic	45	P1 – ny kroppsrigg	Creature\GnollCaster\GnollCaster.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+454	Young Goretusk	46	Återanvändbar stridsrigg	Creature\Boar\Boar.mdx	boar	Befintliga rörelser; familjens variation och balans behöver speltestas
+456	Murloc Minor Oracle	50	P2 – kastare	Creature\Murloc\Murloc.mdx	murloc	Kompatibel kroppsrigg finns; besvärjelser, kastsekvenser och projektilkoppling behöver färdigställas
+458	Murloc Hunter	72	Återanvändbar stridsrigg	Creature\Murloc\Murloc.mdx	murloc	Befintliga rörelser; familjens variation och balans behöver speltestas
+462	Vultros	16	P1 – ny kroppsrigg	Creature\CarrionBird\CarrionBird.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+467	The Defias Traitor	1	Eskort och händelser	Character\Human\Male\HumanMale.mdx	human_bandit	WoW gång/strid finns; eskort- och händelsesekvenser behöver kopplas
+480	Rusty Harvest Golem	16	P1 – ny kroppsrigg	Creature\GolemHarvest\GolemHarvest.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+481	Defias Footpad	5	Återanvändbar stridsrigg	Character\Human\Female\HumanFemale.mdx; Character\Human\Male\HumanMale.mdx	human_bandit; human_bandit_female	Befintliga rörelser; familjens variation och balans behöver speltestas
+487	Protector Bialon	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+488	Protector Weaver	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+489	Protector Dutfield	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+490	Protector Gariel	1	Vänlig NPC	Character\Human\Female\HumanFemale.mdx	human_bandit_female	WoW idle/gång räcker; inga nya stridsanimationer planerade
+491	Quartermaster Lewis	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+500	Riverpaw Scout	48	Återanvändbar stridsrigg	Creature\Gnoll\gnoll.mdx	gnoll	Befintliga rörelser; familjens variation och balans behöver speltestas
+501	Riverpaw Herbalist	49	P1 – ny kroppsrigg	Creature\GnollCaster\GnollCaster.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+502	Benny Blaanco	1	Återanvändbar stridsrigg	Character\Human\Male\HumanMale.mdx	human_bandit	Befintliga rörelser; familjens variation och balans behöver speltestas
+504	Defias Trapper	83	Återanvändbar stridsrigg	Character\Human\Female\HumanFemale.mdx; Character\Human\Male\HumanMale.mdx	human_bandit; human_bandit_female	Befintliga rörelser; familjens variation och balans behöver speltestas
+506	Sergeant Brashclaw	1	P2 – namngiven fiende	Creature\Gnoll\gnoll.mdx	gnoll	Basrigg finns; unika attacker och encounter-sekvenser återstår att utforma
+513	Murloc Netter	52	Återanvändbar stridsrigg	Creature\Murloc\Murloc.mdx	murloc	Befintliga rörelser; familjens variation och balans behöver speltestas
+515	Murloc Raider	28	Återanvändbar stridsrigg	Creature\Murloc\Murloc.mdx	murloc	Befintliga rörelser; familjens variation och balans behöver speltestas
+517	Murloc Oracle	58	P2 – kastare	Creature\Murloc\Murloc.mdx	murloc	Kompatibel kroppsrigg finns; besvärjelser, kastsekvenser och projektilkoppling behöver färdigställas
+519	Slark	1	P2 – namngiven fiende	Creature\Murloc\Murloc.mdx	murloc	Basrigg finns; unika attacker och encounter-sekvenser återstår att utforma
+520	Brack	1	P2 – namngiven fiende	Creature\Murloc\Murloc.mdx	murloc	Basrigg finns; unika attacker och encounter-sekvenser återstår att utforma
+523	Thor	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+547	Great Goretusk	16	Återanvändbar stridsrigg	Creature\Boar\Boar.mdx	boar	Befintliga rörelser; familjens variation och balans behöver speltestas
+550	Defias Messenger	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+573	Foe Reaper 4000	1	P1 – ny kroppsrigg	Creature\GolemHarvest\GolemHarvest.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+582	Old Blanchy	1	Smådjur	Creature\Horse\Horse.mdx	native_wow	WoW-animationer räcker
+589	Defias Pillager	84	P2 – kastare	Character\Human\Male\HumanMale.mdx; Character\Human\Female\HumanFemale.mdx	human_bandit; human_bandit_female	Kompatibel kroppsrigg finns; besvärjelser, kastsekvenser och projektilkoppling behöver färdigställas
+590	Defias Looter	84	Återanvändbar stridsrigg	Character\Human\Male\HumanMale.mdx; Character\Human\Female\HumanFemale.mdx	human_bandit; human_bandit_female	Befintliga rörelser; familjens variation och balans behöver speltestas
+620	Chicken	28	Eskort och händelser	Creature\Chicken\Chicken.mdx	native_wow	WoW gång/strid finns; eskort- och händelsesekvenser behöver kopplas
+820	Scout Riell	1	Vänlig NPC	Character\Human\Female\HumanFemale.mdx	human_bandit_female	WoW idle/gång räcker; inga nya stridsanimationer planerade
+821	Captain Danuvin	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+830	Sand Crawler	17	P1 – ny kroppsrigg	Creature\Crab\Crab.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+831	Sea Crawler	12	P1 – ny kroppsrigg	Creature\Crab\Crab.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+832	Dust Devil	16	P1 – ny kroppsrigg	Creature\AirElemental\AirElemental.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+833	Coyote Packleader	22	Återanvändbar stridsrigg	Creature\Wolf\Wolf.mdx	wolf	Befintliga rörelser; familjens variation och balans behöver speltestas
+834	Coyote	44	Återanvändbar stridsrigg	Creature\Wolf\Wolf.mdx	wolf	Befintliga rörelser; familjens variation och balans behöver speltestas
+842	Lumberjack	4	Vänlig NPC	Creature\HumanMalePeasant\HumanMalePeasant.mdx	native_wow	WoW idle/gång räcker; inga nya stridsanimationer planerade
+843	Gina MacGregor	1	Vänlig NPC	Character\Human\Female\HumanFemale.mdx	human_bandit_female	WoW idle/gång räcker; inga nya stridsanimationer planerade
+869	Protector Dorana	1	Vänlig NPC	Character\Human\Female\HumanFemale.mdx	human_bandit_female	WoW idle/gång räcker; inga nya stridsanimationer planerade
+870	Protector Deni	1	Vänlig NPC	Character\Human\Female\HumanFemale.mdx	human_bandit_female	WoW idle/gång räcker; inga nya stridsanimationer planerade
+874	Protector Korelor	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+876	Protector Leick	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+878	Scout Galiaan	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+883	Deer	2	Smådjur	Creature\Deer\Deer.mdx	native_wow	WoW-animationer räcker
+963	Deputy Rainer	0	Utanför Westfall – uppdragsrelation	Character\Human\Male\HumanMale.mdx	human_bandit	Ingen lokal spawn
+1065	Riverpaw Shaman	4	P1 – ny kroppsrigg	Creature\GnollCaster\GnollCaster.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+1109	Fleshripper	44	P1 – ny kroppsrigg	Creature\CarrionBird\CarrionBird.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+1216	Shore Crawler	22	P1 – ny kroppsrigg	Creature\Crab\Crab.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+1236	Kobold Digger	7	Återanvändbar stridsrigg	Creature\Kobold\Kobold.mdx	kobold	Befintliga rörelser; familjens variation och balans behöver speltestas
+1323	Osric Strang	0	Utanför Westfall – uppdragsrelation	Character\Human\Male\HumanMale.mdx	human_bandit	Ingen lokal spawn
+1424	Master Digger	1	P2 – namngiven fiende	Creature\Kobold\Kobold.mdx	kobold	Basrigg finns; unika attacker och encounter-sekvenser återstår att utforma
+1426	Riverpaw Miner	8	Återanvändbar stridsrigg	Creature\Gnoll\gnoll.mdx	gnoll	Befintliga rörelser; familjens variation och balans behöver speltestas
+1668	William MacGregor	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+1669	Defias Profiteer	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+1670	Mike Miller	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+2442	Cow	2	Smådjur	Creature\Cow\Cow.mdx	native_wow	WoW-animationer räcker
+2620	Prairie Dog	9	Smådjur	Creature\PrarieDog\PrarieDog.mdx	native_wow	WoW-animationer räcker
+2914	Snake	15	Smådjur	Creature\snake\snake.mdx; Creature\snake\snake.mdx; Creature\snake\snake.mdx; Creature\snake\snake.mdx	native_wow	WoW-animationer räcker
+4305	Kriggon Talsone	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+6171	Duthorian Rall	0	Utanför Westfall – uppdragsrelation	Character\Human\Male\HumanMale.mdx	human_bandit	Ingen lokal spawn
+6182	Daphne Stilwell	1	Eskort och händelser	Character\Human\Female\HumanFemale.mdx	human_bandit_female	WoW gång/strid finns; eskort- och händelsesekvenser behöver kopplas
+6271	Mouse	4	Smådjur	Creature\Rat\Rat.mdx; Creature\Rat\Rat.mdx	native_wow	WoW-animationer räcker
+6491	Spirit Healer	1	Gravplats	Creature\spirithealer\SpiritHealer.mdx	native_wow	Ersatt av gravsten; ingen ny NPC-animation
+6670	Westfall Woodworker	8	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+7024	Agent Kearnen	1	Vänlig NPC	Character\Human\Female\HumanFemale.mdx	human_bandit_female	WoW idle/gång räcker; inga nya stridsanimationer planerade
+7051	Malformed Defias Drone	1	P1 – ny kroppsrigg	Character\Scourge\Male\ScourgeMale.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+7052	Defias Tower Patroller	2	Återanvändbar stridsrigg	Character\Human\Female\HumanFemale.mdx; Character\Human\Female\HumanFemale.mdx	human_bandit_female	Befintliga rörelser; familjens variation och balans behöver speltestas
+7053	Klaven Mortwake	1	P2 – namngiven fiende	Character\Human\Male\HumanMale.mdx	human_bandit	Basrigg finns; unika attacker och encounter-sekvenser återstår att utforma
+7056	Defias Tower Sentry	2	Återanvändbar stridsrigg	Character\Human\Male\HumanMale.mdx; Character\Human\Female\HumanFemale.mdx	human_bandit; human_bandit_female	Befintliga rörelser; familjens variation och balans behöver speltestas
+7067	Venture Co. Drone	2	P1 – ny kroppsrigg	Character\Scourge\Male\ScourgeMale.mdx	native_wow	Idle, gång/löpning, vändning, attacker, träffreaktioner och död; kroppens naturliga träffdelar
+8931	Innkeeper Heather	1	Vänlig NPC	Character\Human\Female\HumanFemale.mdx	human_bandit_female	WoW idle/gång räcker; inga nya stridsanimationer planerade
+8934	Christopher Hewen	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade
+10045	Kirk Maxwell	1	Vänlig NPC	Character\Human\Male\HumanMale.mdx	human_bandit	WoW idle/gång räcker; inga nya stridsanimationer planerade

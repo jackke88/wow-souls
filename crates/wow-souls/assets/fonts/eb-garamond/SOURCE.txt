@@ -1,0 +1,8 @@
+EB Garamond Regular (variable weight 400-800, default 400).
+Unmodified font from Google Fonts, commit f8c1d3d6cc75e30d77130bdcbfbff27e3b6233fe.
+Source: https://raw.githubusercontent.com/google/fonts/f8c1d3d6cc75e30d77130bdcbfbff27e3b6233fe/ofl/ebgaramond/EBGaramond%5Bwght%5D.ttf
+License: https://raw.githubusercontent.com/google/fonts/f8c1d3d6cc75e30d77130bdcbfbff27e3b6233fe/ofl/ebgaramond/OFL.txt
+SHA-256: EF9512F92F6D579E5DC75AF59A5A4B1B8B47D2EDA89E00B954D44520E5369027
+Copyright 2017 The EB Garamond Project Authors (https://github.com/octaviopardo/EBGaramond12).
+Licensed under SIL Open Font License 1.1. Keep OFL.txt with every distribution.
+Embedded locally for area titles; no network access at runtime.

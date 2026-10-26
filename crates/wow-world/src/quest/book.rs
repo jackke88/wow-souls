@@ -23,7 +23,10 @@ pub struct QuestBook {
     takes: BTreeMap<Npc, Vec<u32>>,
     /// The NPCs and objects that have a spawn in the valley (a creature's `alt` entries count).
     spawned: BTreeSet<Npc>,
+    /// Quests started by an item (`item_extras.start_quest`) that drops in loot or is rewarded by a quest.
+    item_started: BTreeSet<u32>,
     playable: BTreeSet<u32>,
+    playable_by_class: BTreeMap<u8, BTreeSet<u32>>,
     creature_names: BTreeMap<u32, String>,
     item_names: BTreeMap<u32, String>,
 }
@@ -85,6 +88,25 @@ impl QuestBook {
         }
         spawned.extend(world.object_spawns.iter().map(|s| Npc::Object(s.entry)));
 
+        let obtainable_items: BTreeSet<u32> = world
+            .loot
+            .iter()
+            .filter(|l| l.min_or_ref >= 0)
+            .map(|l| l.item)
+            .chain(world.quests.iter().flat_map(|q| {
+                q.reward_items
+                    .iter()
+                    .chain(&q.reward_choice)
+                    .map(|&(id, _)| id)
+            }))
+            .collect();
+        let item_started: BTreeSet<u32> = world
+            .item_extras
+            .iter()
+            .filter(|ix| ix.start_quest != 0 && obtainable_items.contains(&ix.entry))
+            .map(|ix| ix.start_quest)
+            .collect();
+
         let mut book = QuestBook {
             quests,
             prev_quests,
@@ -95,7 +117,9 @@ impl QuestBook {
             gives,
             takes,
             spawned,
+            item_started,
             playable: BTreeSet::new(),
+            playable_by_class: BTreeMap::new(),
             creature_names: world
                 .creatures
                 .iter()
@@ -107,7 +131,21 @@ impl QuestBook {
                 .map(|i| (i.entry, i.name.clone()))
                 .collect(),
         };
-        book.playable = book.playable_set();
+        for c in [
+            Class::Warrior,
+            Class::Paladin,
+            Class::Hunter,
+            Class::Rogue,
+            Class::Priest,
+            Class::Shaman,
+            Class::Mage,
+            Class::Warlock,
+            Class::Druid,
+        ] {
+            book.playable_by_class
+                .insert(c as u8, book.playable_set_for(c, Race::Human));
+        }
+        book.playable = book.playable_by_class[&(Class::Warrior as u8)].clone();
         book
     }
 
@@ -184,6 +222,13 @@ impl QuestBook {
         self.playable.contains(&quest)
     }
 
+    /// Whether `quest` is reachable for a Human of `class`.
+    pub fn playable_for(&self, quest: u32, class: Class) -> bool {
+        self.playable_by_class
+            .get(&(class as u8))
+            .is_some_and(|set| set.contains(&quest))
+    }
+
     pub fn creature_name(&self, entry: u32) -> Option<&str> {
         self.creature_names.get(&entry).map(String::as_str)
     }
@@ -192,16 +237,16 @@ impl QuestBook {
         self.item_names.get(&item).map(String::as_str)
     }
 
-    fn playable_set(&self) -> BTreeSet<u32> {
-        let class = Class::Warrior.mask();
-        let race = Race::Human.mask();
+    fn playable_set_for(&self, class: Class, race: Race) -> BTreeSet<u32> {
+        let class = class.mask();
+        let race = race.mask();
         let mut set: BTreeSet<u32> = self
             .quests
             .values()
             .filter(|q| {
                 (q.required_classes == 0 || q.required_classes & class != 0)
                     && (q.required_races == 0 || q.required_races & race != 0)
-                    && self.giver_spawned(q.id)
+                    && (self.giver_spawned(q.id) || self.item_started.contains(&q.id))
             })
             .map(|q| q.id)
             .collect();
@@ -514,6 +559,69 @@ mod tests {
             344, 345, 346, 347, 1598, 3101, 3102, 3103, 3104, 3105, 5623, 5805, 7961, 7962,
         ] {
             assert!(!book.playable(not), "{not}");
+        }
+    }
+
+    #[test]
+    fn install_elwynn_and_stormwind_quests_are_level_0_to_13_and_playable() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cache/world/elwynn.txt");
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let w = crate::manifest::parse(&text).unwrap();
+        let book = QuestBook::new(&w);
+        for id in book.ids() {
+            let q = book.quest(id).unwrap();
+            assert!(
+                (0..=13).contains(&q.level) && q.min_level <= 13,
+                "quest {id} ({}) has level={} min_level={}",
+                q.title,
+                q.level,
+                q.min_level
+            );
+        }
+        // Elwynn + Stormwind quests playable by a Human Warrior include Goldshire, Eastvale,
+        // Westbrook, Stormwind City deliveries (61, 332, 333, 334, 6261, 6285), the Warrior
+        // training chain (1638 -> 1639 -> 1640 -> 1665 -> 1666 -> 1667), and the item-started
+        // Collector chain (123 -> 147).
+        for q in [
+            6, 7, 11, 15, 18, 21, 33, 35, 37, 39, 40, 45, 47, 52, 54, 59, 60, 61, 62, 71, 76, 83,
+            84, 85, 86, 87, 88, 106, 107, 111, 112, 114, 123, 147, 176, 239, 332, 333, 334, 783,
+            1638, 1639, 1640, 1665, 1666, 1667, 2158, 3100, 3903, 3904, 3905, 5261, 5545,
+        ] {
+            assert!(book.playable(q), "Warrior quest {q} should be playable");
+        }
+        // Class-specific chains in Northshire, Elwynn and Stormwind work for their classes.
+        for q in [3104, 1860, 1861] {
+            assert!(
+                book.playable_for(q, Class::Mage),
+                "Mage quest {q} should be playable"
+            );
+        }
+        for q in [3101, 2998, 1641, 1642, 1643, 1644, 1780, 1781] {
+            assert!(
+                book.playable_for(q, Class::Paladin),
+                "Paladin quest {q} should be playable"
+            );
+        }
+        for q in [3102, 2205, 2206] {
+            assert!(
+                book.playable_for(q, Class::Rogue),
+                "Rogue quest {q} should be playable"
+            );
+        }
+        for q in [3103, 5623, 5624, 5635] {
+            assert!(
+                book.playable_for(q, Class::Priest),
+                "Priest quest {q} should be playable"
+            );
+        }
+        for q in [3105, 1598, 1685, 1688, 1689] {
+            assert!(
+                book.playable_for(q, Class::Warlock),
+                "Warlock quest {q} should be playable"
+            );
         }
     }
 }

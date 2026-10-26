@@ -74,6 +74,30 @@ pub fn fade_in(now: f64, start: f64, secs: f64) -> f32 {
     ((now - start) / secs).clamp(0.0, 1.0) as f32
 }
 
+/// How long the boss theme keeps playing after the fight went calm (real s): a roll out of reach or a
+/// moment of lost target does not cut it.
+pub const BOSS_MUSIC_HOLD: f64 = 4.0;
+/// The theme fades in over this long, the zone's track out over the second, the theme out over the third.
+const THEME_FADE_IN: f64 = 1.5;
+const ZONE_FADE_FOR_THEME: f64 = 1.5;
+const THEME_FADE_OUT: f64 = 3.0;
+/// The theme's loudness under the player's music level (the tracks are mastered hot).
+const THEME_SCALE: f32 = 0.9;
+
+/// Whether the boss theme plays: while a boss is engaged, and for [`BOSS_MUSIC_HOLD`] s after.
+pub fn boss_music_on(engaged: bool, on: bool, calm_secs: f64) -> bool {
+    engaged || (on && calm_secs < BOSS_MUSIC_HOLD)
+}
+
+/// The place after `idx` in a playlist of `len` tracks, round.
+pub fn next_theme(idx: usize, len: usize) -> usize {
+    if len == 0 {
+        0
+    } else {
+        (idx + 1) % len
+    }
+}
+
 /// A sound on its way out.
 struct Fading {
     playing: Playing,
@@ -97,6 +121,14 @@ struct ZoneState {
     /// When the current track started (real s).
     track_since: f64,
     out: Vec<Fading>,
+    /// The boss theme: its track, its place in the playlist, when it began and when the fight went
+    /// calm (real s).
+    theme: Option<Playing>,
+    theme_idx: usize,
+    theme_since: f64,
+    theme_calm: Option<f64>,
+    /// When a theme track that could not start is tried again (real s).
+    theme_retry: f64,
     bed_kit: u32,
     bed: Option<(Playing, f64)>,
     /// When a bed that failed to start is tried again (real s).
@@ -125,10 +157,16 @@ fn sync_loudness(settings: Res<crate::settings::Settings>, mut loud: ResMut<Loud
     }
 }
 
+/// `WOWSOULS_BOSS_MUSIC=<path in the client's data>`: one track as every boss theme (to try another).
+#[derive(Resource, Default)]
+struct ThemeOverride(Option<String>);
+
 #[allow(clippy::too_many_arguments)]
 fn zone_audio(
     mut st: Local<ZoneState>,
     loud: Res<Loudness>,
+    boss: Res<crate::boss::Engaged>,
+    over: Res<ThemeOverride>,
     real: Res<Time<Real>>,
     clock: Option<Res<GameClock>>,
     weather: Res<WeatherAmbience>,
@@ -158,6 +196,69 @@ fn zone_audio(
     if let Some(track) = &st.track {
         track.set_level(loud.music);
     }
+
+    // The boss theme takes the music over for the fight and gives it back a moment after.
+    let calm = st.theme_calm.map_or(0.0, |c| now - c);
+    if boss.0.is_some() {
+        st.theme_calm = None;
+    } else if st.theme.is_some() && st.theme_calm.is_none() {
+        st.theme_calm = Some(now);
+    }
+    let want_theme = loud.music > 0.0 && boss_music_on(boss.0.is_some(), st.theme.is_some(), calm);
+    if want_theme {
+        let list: Vec<String> = match (&over.0, boss.0) {
+            (Some(p), _) => vec![p.clone()],
+            (None, Some(species)) => crate::boss::music_playlist(species)
+                .iter()
+                .map(|p| (*p).to_string())
+                .collect(),
+            (None, None) => Vec::new(),
+        };
+        if st.theme.as_ref().is_some_and(Playing::is_done) {
+            // On to the next track of the list, at once: the fight is not to be left in silence.
+            st.theme = None;
+            st.theme_idx = next_theme(st.theme_idx, list.len().max(1));
+            if now - st.theme_since < MIN_TRACK_SECS {
+                // A track that never played is no loop to spin on every frame.
+                st.theme_retry = now + RETRY;
+            }
+        }
+        if st.theme.is_none() && !list.is_empty() && now >= st.theme_retry {
+            if let Some(old) = st.track.take() {
+                st.out.push(Fading {
+                    playing: old,
+                    start: now,
+                    secs: ZONE_FADE_FOR_THEME,
+                    from: loud.music,
+                });
+            }
+            let path = &list[st.theme_idx % list.len()];
+            match audio.stream_path(path, THEME_SCALE, 0.0, "boss music") {
+                Some(p) => {
+                    info!("boss music: {} plays {path}", boss.0.unwrap_or("a boss"));
+                    st.theme = Some(p);
+                    st.theme_since = now;
+                }
+                None => st.theme_retry = now + RETRY,
+            }
+        }
+        if let Some(theme) = &st.theme {
+            theme.set_level(fade_in(now, st.theme_since, THEME_FADE_IN) * loud.music);
+        }
+    } else if let Some(theme) = st.theme.take() {
+        info!("boss music: the fight is over, the zone's music returns");
+        st.out.push(Fading {
+            playing: theme,
+            start: now,
+            secs: THEME_FADE_OUT,
+            from: loud.music,
+        });
+        st.theme_idx = 0;
+        st.theme_calm = None;
+        // The zone's own track opens after the theme's tail has thinned.
+        st.next_track = now + THEME_FADE_OUT * 0.5;
+    }
+    let theme_plays = st.theme.is_some();
 
     // Where the player is: until the ground is resident the area is unknown and nothing changes.
     let area = world.area();
@@ -214,7 +315,7 @@ fn zone_audio(
                 info!("zone music: the track ended, {gap:.0} s of silence");
             }
         }
-        if st.track.is_none() && choice.music_row != 0 && now >= st.next_track {
+        if st.track.is_none() && !theme_plays && choice.music_row != 0 && now >= st.next_track {
             // A loop moves on to another track when the zone has one.
             let mut pick = audio.pick_file(choice.music_kits[phase]);
             for _ in 1..FRESH_TRACK_TRIES {
@@ -287,6 +388,11 @@ pub fn plugin(app: &mut App) {
         looped: s.loop_music,
     };
     app.insert_resource(loud)
+        .insert_resource(ThemeOverride(
+            std::env::var("WOWSOULS_BOSS_MUSIC")
+                .ok()
+                .filter(|p| !p.trim().is_empty()),
+        ))
         .add_systems(Update, sync_loudness)
         // The valley's music and ambience play behind the menu too.
         .add_systems(
@@ -318,6 +424,26 @@ mod tests {
         // A track that never played is not retried every frame, loop or not.
         assert_eq!(gap_after(true, 0.1, 60.0), RETRY);
         assert_eq!(gap_after(false, 0.1, 60.0), RETRY);
+    }
+
+    #[test]
+    fn the_boss_theme_plays_while_the_fight_lasts_and_a_moment_after() {
+        // Engaged: on, whatever came before.
+        assert!(boss_music_on(true, false, 0.0));
+        assert!(boss_music_on(true, true, 99.0));
+        // A lull of a moment (the boss lost its target, the player rolled out of reach) keeps it.
+        assert!(boss_music_on(false, true, 1.0));
+        // Calm for good: the theme ends and the zone's music returns.
+        assert!(!boss_music_on(false, true, BOSS_MUSIC_HOLD));
+        assert!(!boss_music_on(false, false, 0.0));
+    }
+
+    #[test]
+    fn the_theme_follows_its_playlist_round() {
+        assert_eq!(next_theme(0, 4), 1);
+        assert_eq!(next_theme(3, 4), 0);
+        assert_eq!(next_theme(0, 1), 0);
+        assert_eq!(next_theme(5, 0), 0, "an empty list is never indexed");
     }
 
     #[test]

@@ -16,7 +16,8 @@ use std::collections::BTreeMap;
 use wow_world::equipment::{self, Refusal, Slot, Wearer};
 
 use super::{
-    candidates, find, neighbor, quality_color, tooltip, Choosing, Dir, GearScreen, Page, Request,
+    candidates, card_at, find, neighbor, quality_color, short_delta, tooltip, verdict, Choosing,
+    Dir, GearScreen, Page, Request, Trend,
 };
 use crate::loot::ui::{container, load_icon, plain, Art, Fonts, GOLD, IVORY, MUTED};
 use crate::loot::{Data, Owned, Screen};
@@ -27,8 +28,46 @@ const CELL: f32 = 44.0;
 /// Rows of the choice list.
 const ROWS: usize = 7;
 const DIM: Color = Color::srgb(0.31, 0.27, 0.19);
-const CURSOR: Color = Color::srgb(0.95, 0.78, 0.35);
+const CURSOR: Color = GOLD;
 const RED: Color = Color::srgb(0.94, 0.45, 0.4);
+const GREEN: Color = Color::srgb(0.55, 0.85, 0.45);
+/// Lines of the comparison under the tooltip.
+const COMPARE_LINES: usize = 5;
+
+const GRID: [Slot; 21] = [
+    Slot::MainHand,
+    Slot::OffHand,
+    Slot::Ranged,
+    Slot::Ammo,
+    Slot::Head,
+    Slot::Chest,
+    Slot::Hands,
+    Slot::Legs,
+    Slot::Feet,
+    Slot::Shoulders,
+    Slot::Back,
+    Slot::Wrists,
+    Slot::Waist,
+    Slot::Shirt,
+    Slot::Neck,
+    Slot::Tabard,
+    Slot::Finger1,
+    Slot::Finger2,
+    Slot::Trinket1,
+    Slot::Trinket2,
+    Slot::Torch,
+];
+fn grid_neighbor(slot: Slot, dir: Dir) -> Slot {
+    let i = GRID.iter().position(|s| *s == slot).unwrap_or(0);
+    let next = match dir {
+        Dir::Up if i >= 4 => i - 4,
+        Dir::Down if i + 4 < GRID.len() => i + 4,
+        Dir::Left if i % 4 > 0 => i - 1,
+        Dir::Right if i % 4 < 3 && i + 1 < GRID.len() => i + 1,
+        _ => i,
+    };
+    GRID[next]
+}
 
 /// WoW's empty-slot picture for each slot (`GetInventorySlotInfo`); the back reuses the chest's.
 fn empty_art(slot: Slot) -> &'static str {
@@ -50,6 +89,8 @@ fn empty_art(slot: Slot) -> &'static str {
         Slot::Ranged => "Interface/PaperDoll/UI-PaperDoll-Slot-Ranged",
         Slot::Tabard => "Interface/PaperDoll/UI-PaperDoll-Slot-Tabard",
         Slot::Ammo => "Interface/PaperDoll/UI-PaperDoll-Slot-Ammo",
+        // WoW has no torch slot: its unlit torch icon stands for the empty one.
+        Slot::Torch => "Interface/Icons/INV_Torch_Unlit",
     }
 }
 
@@ -83,6 +124,10 @@ enum Words {
     Hint,
     ChoiceName(usize),
     ChoiceNote(usize),
+    /// "Compared with ..." under the highlighted option's tooltip.
+    Versus,
+    /// One row of that comparison, green for a gain, red for a loss.
+    Compare(usize),
 }
 
 pub fn plugin(app: &mut App) {
@@ -108,6 +153,9 @@ fn frame_node(
     image: &Handle<Image>,
     parent: Entity,
 ) -> Entity {
+    if crate::hud::theme::enabled() {
+        return crate::hud::theme::panel(commands, node, Some(parent));
+    }
     let mut image = ImageNode::new(image.clone());
     image.image_mode = NodeImageMode::Sliced(TextureSlicer {
         border: BorderRect::all(18.0),
@@ -198,44 +246,62 @@ fn spawn(
         26.0,
         IVORY,
     );
-    let columns = container(
-        &mut commands,
-        doll,
-        Node {
-            flex_direction: FlexDirection::Row,
-            justify_content: JustifyContent::SpaceBetween,
-            padding: UiRect::horizontal(px(18)),
-            margin: UiRect::top(px(6)),
-            ..default()
-        },
-    );
-    for slots in [&equipment::LEFT_COLUMN[..], &equipment::RIGHT_COLUMN[..]] {
-        let column = container(
+    if crate::hud::theme::enabled() {
+        let grid = container(
             &mut commands,
-            columns,
+            doll,
             Node {
-                flex_direction: FlexDirection::Column,
-                row_gap: px(5),
+                display: Display::Grid,
+                grid_template_columns: RepeatedGridTrack::px(4, 64.0),
+                row_gap: px(10),
+                column_gap: px(10),
+                margin: UiRect::axes(px(4), px(14)),
                 ..default()
             },
         );
-        for &slot in slots {
-            cell(&mut commands, column, slot);
+        for slot in GRID {
+            cell(&mut commands, grid, slot);
         }
-    }
-    let weapons = container(
-        &mut commands,
-        doll,
-        Node {
-            flex_direction: FlexDirection::Row,
-            justify_content: JustifyContent::Center,
-            column_gap: px(14),
-            margin: UiRect::top(px(8)),
-            ..default()
-        },
-    );
-    for slot in equipment::WEAPON_ROW {
-        cell(&mut commands, weapons, slot);
+    } else {
+        let columns = container(
+            &mut commands,
+            doll,
+            Node {
+                flex_direction: FlexDirection::Row,
+                justify_content: JustifyContent::SpaceBetween,
+                padding: UiRect::horizontal(px(18)),
+                margin: UiRect::top(px(6)),
+                ..default()
+            },
+        );
+        for slots in [&equipment::LEFT_COLUMN[..], &equipment::RIGHT_COLUMN[..]] {
+            let column = container(
+                &mut commands,
+                columns,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(5),
+                    ..default()
+                },
+            );
+            for &slot in slots {
+                cell(&mut commands, column, slot);
+            }
+        }
+        let weapons = container(
+            &mut commands,
+            doll,
+            Node {
+                flex_direction: FlexDirection::Row,
+                justify_content: JustifyContent::Center,
+                column_gap: px(14),
+                margin: UiRect::top(px(8)),
+                ..default()
+            },
+        );
+        for slot in equipment::WEAPON_ROW.into_iter().chain(equipment::BELT_ROW) {
+            cell(&mut commands, weapons, slot);
+        }
     }
     let totals = plain(&mut commands, doll, "", &fonts.body, 16.0, IVORY);
     commands.entity(totals).insert((
@@ -346,6 +412,12 @@ fn spawn(
     commands.entity(name).insert(Words::ItemName);
     let tip = plain(&mut commands, words, "", &fonts.body, 15.0, MUTED);
     commands.entity(tip).insert(Words::Tooltip);
+    let versus = plain(&mut commands, words, "", &fonts.body, 14.0, MUTED);
+    commands.entity(versus).insert(Words::Versus);
+    for i in 0..COMPARE_LINES {
+        let line = plain(&mut commands, words, "", &fonts.body, 15.0, IVORY);
+        commands.entity(line).insert(Words::Compare(i));
+    }
     let message = plain(&mut commands, info, "", &fonts.body, 16.0, IVORY);
     commands.entity(message).insert(Words::Message);
     let hint = plain(&mut commands, info, "", &fonts.body, 14.0, MUTED);
@@ -360,16 +432,23 @@ fn spawn(
 
 /// One slot of the pane: a bordered button holding a picture.
 fn cell(commands: &mut Commands, parent: Entity, slot: Slot) {
+    let size = if crate::hud::theme::enabled() {
+        64.0
+    } else {
+        CELL
+    };
     let button = commands
         .spawn((
             Node {
-                width: px(CELL),
-                height: px(CELL),
-                border: UiRect::all(px(2)),
+                width: px(size),
+                height: px(size),
+                border: UiRect::all(px(1)),
+                padding: UiRect::all(px(5)),
                 ..default()
             },
             Button,
             Cell(slot),
+            crate::hud::theme::Surface::Slot(false),
             BorderColor::all(DIM),
             BackgroundColor(Color::srgba(0.02, 0.018, 0.014, 0.55)),
             ChildOf(parent),
@@ -399,21 +478,21 @@ fn who(game: Option<&crate::quests::QuestGame>) -> Wearer {
     )
 }
 
-/// Opens the list of what the pack holds for the cursor's slot (and Take off when it is worn).
-fn open_choice(
-    ui: &mut GearScreen,
+/// What the pack holds for `slot`, the ones the wearer may use first and the refused after; Take off
+/// (`None`) leads when `take_off` is asked and the slot is worn.
+fn slot_options(
+    slot: Slot,
     owned: &Owned,
     data: &Data,
     game: Option<&crate::quests::QuestGame>,
-) {
-    let slot = ui.cursor;
+    take_off: bool,
+) -> Vec<Option<u32>> {
     let order = crate::loot::ui::ordered(&owned.progress.inventory);
     let fits = candidates(&owned.progress, &data.0.items, slot, who(game), &order);
     let mut options: Vec<Option<u32>> = Vec::new();
-    if owned.progress.gear.get(slot).is_some() {
+    if take_off && owned.progress.gear.get(slot).is_some() {
         options.push(None);
     }
-    // The ones the wearer may use first, the refused after.
     options.extend(
         fits.iter()
             .filter(|(_, v)| v.is_ok())
@@ -424,6 +503,18 @@ fn open_choice(
             .filter(|(_, v)| v.is_err())
             .map(|&(e, _)| Some(e)),
     );
+    options
+}
+
+/// Opens the list of what the pack holds for the cursor's slot (and Take off when it is worn).
+fn open_choice(
+    ui: &mut GearScreen,
+    owned: &Owned,
+    data: &Data,
+    game: Option<&crate::quests::QuestGame>,
+) {
+    let slot = ui.cursor;
+    let options = slot_options(slot, owned, data, game, true);
     if options.is_empty() {
         ui.message = format!("Nothing in your pack goes in {}.", slot.name());
         ui.choosing = None;
@@ -562,7 +653,11 @@ fn input(
         return;
     }
     if let Some(dir) = dir {
-        ui.cursor = neighbor(ui.cursor, dir);
+        ui.cursor = if crate::hud::theme::enabled() {
+            grid_neighbor(ui.cursor, dir)
+        } else {
+            neighbor(ui.cursor, dir)
+        };
         ui.message.clear();
     }
     if confirm {
@@ -609,11 +704,23 @@ fn buttons(
         return;
     }
     for (interaction, row) in &rows {
-        if *interaction == Interaction::Pressed {
-            if let Some(choice) = ui.choosing.as_mut() {
-                if row.0 < choice.options.len() {
-                    choice.selected = row.0;
-                    confirm_choice(&mut ui);
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
+        if let Some(choice) = ui.choosing.as_mut() {
+            if row.0 < choice.options.len() {
+                choice.selected = row.0;
+                confirm_choice(&mut ui);
+            }
+        } else {
+            // A row of the preview: open the list on that piece (Take off leads it when worn).
+            let preview = slot_options(ui.cursor, &owned, &data, game.as_deref(), false);
+            if let Some(&Some(entry)) = preview.get(row.0) {
+                open_choice(&mut ui, &owned, &data, game.as_deref());
+                if let Some(choice) = ui.choosing.as_mut() {
+                    if let Some(i) = choice.options.iter().position(|o| *o == Some(entry)) {
+                        choice.selected = i;
+                    }
                 }
             }
         }
@@ -641,6 +748,31 @@ fn label(slot: Slot) -> String {
     }
 }
 
+/// A list row's right edge for gear the wearer may put on: the changes in a few words, "+31 Armor
+/// +1 Agi", or Equal when nothing changes.
+fn row_note(card: &super::Card) -> String {
+    let parts: Vec<String> = card
+        .compare
+        .iter()
+        .filter(|l| l.trend != Trend::Same)
+        .filter_map(short_delta)
+        .take(3)
+        .collect();
+    if parts.is_empty() {
+        "Equal".into()
+    } else {
+        parts.join("  ")
+    }
+}
+
+fn trend_color(trend: Option<Trend>) -> Color {
+    match trend {
+        Some(Trend::Better) => GREEN,
+        Some(Trend::Worse) => RED,
+        _ => MUTED,
+    }
+}
+
 /// The refusal in a few words, for the list's right edge.
 fn short(refusal: Refusal) -> String {
     match refusal {
@@ -660,11 +792,11 @@ fn refresh(
     data: Res<Data>,
     ui: Res<GearScreen>,
     game: Option<Res<crate::quests::QuestGame>>,
-    moves: Option<Res<crate::dsclip::DsMoves>>,
+    moves: Option<Res<crate::motion_clip::WeaponClips>>,
     art: Option<Res<Art>>,
     pane: Option<Res<PaneArt>>,
     mut root: Query<&mut Visibility, (With<Root>, Without<Pic>)>,
-    mut cells: Query<(&Cell, &mut BorderColor)>,
+    mut cells: Query<(&Cell, &mut BorderColor, &mut crate::hud::theme::Surface)>,
     mut rows: Query<(&Row, &mut Node, &mut BackgroundColor), Without<Cell>>,
     mut pics: Query<(&Pic, &mut ImageNode, &mut Visibility), Without<Root>>,
     mut words: Query<(&Words, &mut Text, &mut TextColor)>,
@@ -690,11 +822,14 @@ fn refresh(
     let who = who(game.as_deref());
     let gear = &owned.progress.gear;
     let icon_of = |entry: u32| art.icons.get(&entry).cloned();
-    let option_item = |index: usize| {
-        ui.choosing
-            .as_ref()
-            .and_then(|c| c.options.get(index).copied().flatten())
+    // The list: the open choice, else a preview of what the pack holds for the cursor's slot.
+    let options: Vec<Option<u32>> = match ui.choosing.as_ref() {
+        Some(c) => c.options.clone(),
+        None => slot_options(ui.cursor, &owned, &data, game.as_deref(), false),
     };
+    let option_item = |index: usize| options.get(index).copied().flatten();
+    // Each piece held against what the cursor's slot holds now.
+    let card_of = |entry: u32| card_at(items, gear, who, entry, ui.cursor);
 
     // What the right panel describes: the highlighted option, else the item worn under the cursor.
     let highlighted = match ui.choosing.as_ref().and_then(|c| c.options.get(c.selected)) {
@@ -702,25 +837,31 @@ fn refresh(
         _ => gear.get(ui.cursor),
     };
     let described = highlighted.and_then(|e| find(items, e));
+    let chosen_card = ui
+        .choosing
+        .as_ref()
+        .and_then(|c| c.options.get(c.selected).copied().flatten())
+        .and_then(card_of);
 
-    for (cell, mut border) in &mut cells {
+    for (cell, mut border, mut surface) in &mut cells {
+        let skin = crate::hud::theme::Surface::Slot(cell.0 == ui.cursor);
+        if *surface != skin {
+            *surface = skin;
+        }
         let want = if cell.0 == ui.cursor { CURSOR } else { DIM };
         if border.top != want {
             *border = BorderColor::all(want);
         }
     }
     for (row, mut node, mut background) in &mut rows {
-        let live = ui
-            .choosing
-            .as_ref()
-            .is_some_and(|c| row.0 < c.options.len());
+        let live = row.0 < options.len();
         let display = if live { Display::Flex } else { Display::None };
         if node.display != display {
             node.display = display;
         }
         let focused = ui.choosing.as_ref().is_some_and(|c| c.selected == row.0);
         let color = if focused {
-            Color::srgba(0.46, 0.21, 0.07, 0.65)
+            crate::hud::theme::SELECTED
         } else {
             Color::NONE
         };
@@ -738,7 +879,7 @@ fn refresh(
                     true,
                 ),
             },
-            Pic::Choice(row) => match ui.choosing.as_ref().and_then(|c| c.options.get(row)) {
+            Pic::Choice(row) => match options.get(row) {
                 Some(Some(entry)) => (icon_of(*entry), Color::WHITE, true),
                 // Take off: the slot's own empty art.
                 Some(None) => (
@@ -776,8 +917,10 @@ fn refresh(
             Words::Heading => (
                 if ui.choosing.is_some() {
                     format!("Put on: {}", label(ui.cursor))
-                } else {
+                } else if options.is_empty() {
                     label(ui.cursor)
+                } else {
+                    format!("{}  ·  {} in your pack", label(ui.cursor), options.len())
                 },
                 IVORY,
             ),
@@ -814,7 +957,7 @@ fn refresh(
                 },
                 MUTED,
             ),
-            Words::ChoiceName(row) => match ui.choosing.as_ref().and_then(|c| c.options.get(row)) {
+            Words::ChoiceName(row) => match options.get(row) {
                 Some(Some(entry)) => find(items, *entry).map_or((String::new(), IVORY), |i| {
                     (i.name.clone(), quality_color(i.quality))
                 }),
@@ -822,14 +965,26 @@ fn refresh(
                 None => (String::new(), IVORY),
             },
             Words::ChoiceNote(row) => {
-                let note = option_item(row)
+                let refusal = option_item(row)
                     .and_then(|e| find(items, e))
-                    .and_then(|i| gear.plan(items, i, ui.cursor, who).err())
-                    .map(short)
-                    .unwrap_or_default();
-                let tint = if note.is_empty() { MUTED } else { RED };
-                (note, tint)
+                    .and_then(|i| gear.plan(items, i, ui.cursor, who).err());
+                match (refusal, option_item(row).and_then(card_of)) {
+                    (Some(r), _) => (short(r), RED),
+                    // How much better or worse than what is worn, as the pack marks its gear.
+                    (None, Some(card)) => (row_note(&card), trend_color(verdict(&card))),
+                    (None, None) => (String::new(), MUTED),
+                }
             }
+            Words::Versus => (
+                chosen_card
+                    .as_ref()
+                    .map_or(String::new(), |c| c.versus.clone()),
+                MUTED,
+            ),
+            Words::Compare(i) => match chosen_card.as_ref().and_then(|c| c.compare.get(i)) {
+                Some(line) => (line.text.clone(), trend_color(Some(line.trend))),
+                None => (String::new(), MUTED),
+            },
         };
         if text.0 != value {
             text.0 = value;
@@ -847,10 +1002,31 @@ mod tests {
     #[test]
     fn every_slot_has_empty_slot_art_and_the_back_borrows_the_chest() {
         for slot in Slot::ALL {
-            assert!(empty_art(slot).starts_with("Interface/PaperDoll/UI-PaperDoll-Slot-"));
+            assert!(
+                empty_art(slot).starts_with("Interface/PaperDoll/UI-PaperDoll-Slot-")
+                    || slot == Slot::Torch
+            );
         }
         assert_eq!(empty_art(Slot::Back), empty_art(Slot::Chest));
         assert_eq!(empty_art(Slot::Finger1), empty_art(Slot::Finger2));
+    }
+
+    #[test]
+    fn grid_navigation_follows_visual_neighbors_and_keeps_all_slots_reachable() {
+        assert_eq!(grid_neighbor(Slot::MainHand, Dir::Down), Slot::Head);
+        assert_eq!(grid_neighbor(Slot::Head, Dir::Right), Slot::Chest);
+        assert_eq!(grid_neighbor(Slot::Trinket2, Dir::Right), Slot::Trinket2);
+        assert_eq!(grid_neighbor(Slot::MainHand, Dir::Up), Slot::MainHand);
+        let mut seen = std::collections::BTreeSet::new();
+        let mut todo = vec![Slot::MainHand];
+        while let Some(slot) = todo.pop() {
+            if seen.insert(slot) {
+                for dir in [Dir::Up, Dir::Down, Dir::Left, Dir::Right] {
+                    todo.push(grid_neighbor(slot, dir));
+                }
+            }
+        }
+        assert_eq!(seen, Slot::ALL.into_iter().collect());
     }
 
     #[test]

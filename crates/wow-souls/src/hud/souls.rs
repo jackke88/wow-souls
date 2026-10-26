@@ -88,6 +88,8 @@ struct CountText;
 
 #[derive(Component)]
 struct GainText;
+#[derive(Component)]
+struct NativeRoot;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Souls>()
@@ -95,13 +97,13 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, credit)
         .add_systems(
             OnEnter(Phase::Playing),
-            spawn.run_if(resource_exists::<HudArt>),
+            spawn.run_if(resource_exists::<HudArt>.or(super::theme::enabled)),
         )
         .add_systems(
             Update,
             update
                 .run_if(in_state(Phase::Playing))
-                .run_if(resource_exists::<HudArt>),
+                .run_if(resource_exists::<HudArt>.or(super::theme::enabled)),
         );
 }
 
@@ -126,7 +128,52 @@ fn shifted(r: LRect, to: LRect) -> LRect {
     }
 }
 
-fn spawn(mut commands: Commands, art: Res<HudArt>) {
+fn spawn(mut commands: Commands, art: Option<Res<HudArt>>, fonts: Res<crate::loot::ui::Fonts>) {
+    if super::theme::enabled() {
+        let root = super::theme::panel(
+            &mut commands,
+            Node {
+                position_type: PositionType::Absolute,
+                right: px(34),
+                bottom: px(22),
+                width: px(134),
+                height: px(26),
+                padding: UiRect::horizontal(px(10)),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::SpaceBetween,
+                ..default()
+            },
+            None,
+        );
+        commands.entity(root).insert(NativeRoot);
+        super::theme::words(
+            &mut commands,
+            root,
+            "Souls",
+            &fonts.body,
+            12.0,
+            Node::default(),
+        );
+        let count =
+            super::theme::words(&mut commands, root, "0", &fonts.body, 17.0, Node::default());
+        commands.entity(count).insert(CountText);
+        let gain = super::theme::words(
+            &mut commands,
+            root,
+            "",
+            &fonts.body,
+            14.0,
+            Node {
+                position_type: PositionType::Absolute,
+                right: px(8),
+                bottom: px(32),
+                ..default()
+            },
+        );
+        commands.entity(gain).insert(GainText);
+        return;
+    }
+    let Some(art) = art else { return };
     let place = art.m.place("F20-00/soul_param");
     let root = commands
         .spawn((
@@ -171,8 +218,35 @@ fn update(
     mut counter: ResMut<Counter>,
     mut count: Query<&mut BitmapText, (With<CountText>, Without<GainText>)>,
     mut gain: Query<&mut BitmapText, (With<GainText>, Without<CountText>)>,
+    mut native: Query<
+        (&mut Text, &mut TextColor, Has<GainText>),
+        Or<(With<CountText>, With<GainText>)>,
+    >,
+    screen: Res<crate::loot::Screen>,
+    log: Res<crate::quests::LogScreen>,
+    mut root: Query<&mut Visibility, With<NativeRoot>>,
 ) {
+    for mut vis in &mut root {
+        *vis = if screen.open || log.open {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+    }
     counter.step(souls.0, real.delta_secs());
+    for (mut text, mut color, is_gain) in &mut native {
+        let want = if is_gain {
+            counter.gain_text()
+        } else {
+            counter.text()
+        };
+        if text.0 != want {
+            text.0 = want;
+        }
+        if is_gain {
+            color.0 = super::theme::IVORY.with_alpha(counter.gain_alpha());
+        }
+    }
     if let Ok(mut t) = count.single_mut() {
         let want = counter.text();
         if t.text != want {

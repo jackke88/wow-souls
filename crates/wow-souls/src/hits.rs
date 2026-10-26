@@ -109,9 +109,9 @@ impl HitStop {
 pub fn plugin(app: &mut App) {
     app.add_plugins((
         crate::hitbody::plugin,
-        crate::dsclip::plugin,
+        crate::motion_clip::plugin,
         crate::weapons::plugin,
-        crate::dsview::plugin,
+        crate::rig_view::plugin,
         crate::monster::plugin,
     ))
     .add_message::<Hit>()
@@ -336,11 +336,21 @@ pub fn blade_hits(
 /// Sweeps the avatar's blade through its active window and lands hits.
 #[allow(clippy::too_many_arguments)]
 fn strike(
-    moves: Option<Res<crate::dsclip::DsMoves>>,
+    moves: Option<Res<crate::motion_clip::WeaponClips>>,
     real: Res<Time<bevy::time::Real>>,
     mut virt: ResMut<Time<Virtual>>,
     mut stop: ResMut<HitStop>,
-    mut avatar: Query<(&Action, &HeldBuilt, &mut BladeTrail, &GlobalTransform), With<Avatar>>,
+    mut avatar: Query<
+        (
+            &Action,
+            &HeldBuilt,
+            &mut BladeTrail,
+            &GlobalTransform,
+            &mut crate::combat::Stamina,
+            &mut Health,
+        ),
+        With<Avatar>,
+    >,
     roots: Query<&GlobalTransform>,
     mut targets: Query<
         (
@@ -358,11 +368,19 @@ fn strike(
     mut hits: MessageWriter<Hit>,
     buffs: Res<crate::abilities::Buffs>,
     gear: Res<crate::gear_effect::GearFx>,
+    disarmed: Option<Res<crate::named::Disarmed>>,
+    (talents, mut warrior, mut rage, time, mut commands): (
+        Res<crate::talents::Talents>,
+        ResMut<crate::warrior::Warrior>,
+        ResMut<crate::abilities::Rage>,
+        Res<Time>,
+        Commands,
+    ),
 ) {
     if moves.as_ref().is_some_and(|m| m.projectile.is_some()) {
         return;
     }
-    let Ok((action, held, mut trail, avatar_at)) = avatar.single_mut() else {
+    let Ok((action, held, mut trail, avatar_at, mut stamina, mut hp)) = avatar.single_mut() else {
         return;
     };
     let (Some([top, _]), Ok(root)) = (held.blade, roots.get(held.root)) else {
@@ -377,7 +395,7 @@ fn strike(
         trail.swing = None;
         return;
     };
-    let window = if swing.ds {
+    let window = if swing.reference {
         moves
             .as_deref()
             .and_then(|m| m.clip(swing.kind))
@@ -442,26 +460,49 @@ fn strike(
             continue;
         };
         trail.struck.push(target);
+        let contact = warrior.contact(
+            &talents,
+            swing,
+            target,
+            time.elapsed_secs(),
+            rage.cur,
+            hp.cur / hp.max.max(1.0),
+        );
         // Battle Shout (`crate::abilities`) and the weapon's own worth (`crate::gear_effect`) scale it.
-        let damage = if swing.ds {
+        let damage = if swing.reference {
             moves.as_ref().map_or(LIGHT_DAMAGE, |m| m.base_damage) * swing.spec.mult
         } else {
             hit_damage(&swing.spec)
         } * buffs.damage_factor()
-            * gear.0.melee_factor;
+            * gear.0.melee_factor
+            // Disarmed ([`crate::named`]), the fists strike for a third.
+            * disarmed.as_deref().map_or(1.0, crate::named::disarm_factor)
+            * contact.damage;
         health.cur = (health.cur - damage).max(0.0);
         let lethal = health.cur <= 0.0;
+        warrior.landed(&talents, swing.serial, lethal, &mut hp, &mut stamina);
+        if contact.signature {
+            rage.ability_damage += damage;
+        }
+        if !lethal && contact.bleed > 0.0 {
+            commands.entity(target).insert(crate::warrior::Bleed {
+                left: 4.0,
+                damage_left: damage * contact.bleed,
+                tick: 0.0,
+                from: avatar_at.translation(),
+            });
+        }
         hits.write(Hit {
             target,
             damage,
             point,
             lethal,
             level: swing.spec.level,
-            poise: if swing.ds {
+            poise: (if swing.reference {
                 swing.spec.poise
             } else {
                 swing.spec.poise.max(light_poise(swing.spec.level))
-            },
+            }) * contact.poise,
             from: avatar_at.translation(),
             knock: swing.spec.knock,
         });

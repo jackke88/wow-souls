@@ -155,8 +155,19 @@ const HEAD: [&str; 7] = [
 pub fn plugin(app: &mut App) {
     let art = resource_exists::<HudArt>;
     app.init_resource::<Chips>()
-        .add_systems(OnEnter(Phase::Playing), spawn.run_if(art))
-        .add_systems(Update, update.run_if(in_state(Phase::Playing)).run_if(art));
+        .add_systems(
+            OnEnter(Phase::Playing),
+            spawn
+                .run_if(art)
+                .run_if(not(resource_exists::<super::VitalsArt>)),
+        )
+        .add_systems(
+            Update,
+            update
+                .run_if(in_state(Phase::Playing))
+                .run_if(art)
+                .run_if(not(resource_exists::<super::VitalsArt>)),
+        );
 }
 
 fn spawn(mut commands: Commands, art: Res<HudArt>) {

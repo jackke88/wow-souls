@@ -1,0 +1,76 @@
+# Index of docs/archive/HANDOVER-full-2026-10-13.md (line: heading). GREP this, then `Read` the archive with offset/limit. Never read the archive whole.
+3: **For a fresh chat:** read this file, then `README.md`, then go to the section ">>> START HERE" (line ~354, under Plan and status), which says exactly
+6: ## What this is
+14: ## Standing orders from the user (2026-10-09; do not ask again)
+69: ## Paths
+82: ## Build, run, verify
+118: ## Architecture (crates/wow-souls/src)
+181: ## Gotchas
+190: ## Plan and status
+218: ## Roadmap: what is left, in the order the user chose (2026-10-09)
+227: ### 1. Monsters: the zone-correct Northshire Valley roster (what is left is "now")
+278: ### Quests: data import (found 2026-10-09; the source of truth for spawns, NPCs and quests)
+321: ### 2. Quests and XP (so the game can be played)
+334: ### 3. Items and the rest of the player
+336: **Every item that can be had in Northshire gets developed for**, by weapon and armour class. What the quests
+351: ### Spawn rate and aggression (needs its own look once all creatures are in)
+363: ## >>> START HERE: WHAT THE NEXT AI MUST DO (written 2026-10-11 late, the user is nearly out of tokens; job 3 built 2026-10-12) <<<
+367: ### 1. SOUND WAS BROKEN: ROOT CAUSE FOUND AND FIXED THIS SESSION (verify by ear, then close)
+371: **Cause (measured, not guessed):** `audio::listener()` took `cams.iter().next()` of ALL `Camera3d` entities; one of them sits at the world's origin, s
+373: **Fix:** `listener()` and every `cams` query in `audio.rs`, `foot.rs`, `vocal.rs` now use `With<benilla_world::view::WorldCamera>` (the one camera the
+375: **Earlier hardening of the same session (kept):** the mixer steals the voice nearest its end at its cap (48), refuses / zeroes NaN, survives a panic, 
+377: **Still open for sound (after the user has listened):**
+382: ### 2. MENU: **BUILT 2026-10-12 in three parts** (the user: "Jag vill att du lägger till en meny också", then "original character creation från WoW
+393: ### 3. DARK SOULS LOCOMOTION: **BUILT 2026-10-12** (details: the first entry under "Next action"; the user to judge the look and the pace)
+399: ### State of the rest (all built, the user to judge): the entries below
+403: ## Next action
+405: **RUN TILT FIXED, HOGGER'S BODY SHAPED, HOGGER'S PATTERNS MORE FLASHY (2026-10-13 late; the user: "När man springer är man tiltad åt ett håll lite
+419: **HOGGER BUILT 2026-10-13 (native execution of `docs/superpowers/plans/2026-10-13-hogger.md`, tasks 1-9; the user is to judge look, feel and difficult
+431: **DEFIAS FOOTWORK CHECKED, A SIDESTEP FIX AND A RING BUG (2026-10-13; the user: "Har nu även defias sin egna ai också?", then "sidestep animationen 
+433: **LOCK-ON TARGET SWITCHING BUILT (2026-10-13; the user: "Kan du också implementera hur man kan cykla mellan lockade targets. Så man inte behöver un
+435: **ENEMY FOOTWORK AND A MORE LIVELY PLAYER BUILT (2026-10-13; feedback the user passed on: "Dynamic enemy ai that keep distance, move in, and move away
+443: **CHARACTER SLOTS BUILT (2026-10-13; the user: "Har vi möjlighet för flera character spots? För det måste vi annars", then "1 och gå sedan direkt
+450: **AUTO-EQUIP: ONE RULE FOR EVERYTHING THE CHARACTER IS HANDED (2026-10-13; the user: "Jag såg att vissa saker autoequippas ifall man inte har något 
+456: **THE CAMERA IS NOW DARK SOULS REMASTERED'S (2026-10-13; the user: "Läs handover - innan vi går på nästa klass - borde vi fixa till så kameran ä
+463: **DECISIONS 2026-10-12, a later chat ("Läs handover - vi bör göra klasser?"; nothing built yet, nothing committed).**
+486: **MENU PARTS 2 AND 3 BUILT: SETTINGS, KEY BINDINGS AND THE SYSTEM MENU (2026-10-12, the same request as part 1: "allt en meny behöver med keybindings
+495: **MENU PART 1 BUILT: WOW'S OWN CHARACTER CREATION, IN SOULS PARCHMENT (2026-10-12; the user: "Gör menyn - jag skulle vilja ha orginal character creat
+505: **BATTLE SHOUT'S VFX FIXED: THE EFFECT BUILDER NOW BUILDS WHAT WOW'S EFFECT MODELS CONTAIN (2026-10-12; the user: "Battle Shout är buggigt med vfx'n 
+511: **ELDEN RING AND SHEATHING (the user: "Hur gör Elden Ring det, kan du kolla det?", 2026-10-12; web research: guides, forum threads, the wiki page of 
+513: **THE DARK SOULS BACKSTEP (2026-10-12, the same session; the second "missing animation"; nothing committed).** A still stick + the evade key (Space / 
+518: **DARK SOULS LOCOMOTION BUILT: THE REAL WALK, RUN, SPRINT AND LOCKED STEPS (2026-10-12; the user: "Kolla handover - jobba på animationerna som saknas
+526: **RUN LOOKED ABSURD: THE CARRY POSE NOW FADES AT SPEED (2026-10-11; the user: "Kolla på chatgpts jobb med animationerna. Nu ser det löjligt ut när 
+528: **ABILITIES REWORKED: CHARGE, BATTLE SHOUT, THUNDER CLAP (2026-10-11; the user: "Heroic strike skulle vi väl inte ha? ... Det var la battle shout, ch
+536: **PACK COMPARISON, CHEST SPARKLES, MUSIC LOOP, SOUND HARDENING (2026-10-11; the user: "när man kollar igenom vad man har i sin backpack så kan man o
+544: **WARRIOR WEAPON FAMILIES (2026-10-11; user: Souls combat for every warrior weapon, original DSR animation where available; only DSR installed, resear
+552: **ABILITIES, RAGE, TRAINER AND STRONGBOX BUILT (2026-10-11; the user asked "hur gor vi med abilities? auto learn eller trainer? ... spara souls i en b
+554: **SOULS SHOPS BUILT (2026-10-11; the user: "kanske hur man anvander souls och hela det systemet", then via questions: **vendors first** and **one curr
+556: **XP BAR BUILT (2026-10-11; the user: "lagg till en xp bar ocksa sa man kan se hur langt kvar det ar"; nothing committed).** `hud/xp.rs`: a thin gold 
+558: **QUEST REWARDS: LOOK AND COMPARE BUILT (2026-10-11; the user: "fixa quest-ui't sa man faktiskt kan kolla pa sina potentiella rewards och jamfora, ska
+560: **EQUIPMENT SYSTEM BUILT (2026-10-11; the user: "Fixa utrustningssystemet - ska vara samma som WoW alltså samma equipment slots som orginalet"; nothi
+570: **NPC interact prompt + character creation menu BUILT (2026-10-10, inline; the user: "Innan vi går vidare med intro, väder osv ...: en indikations-i
+594: **RELEASE PLAN: decisions the user took on 2026-10-10 (the game is to be published on the user's own website, players supply their own game installs, 
+606: **Voices and audio (2026-10-10, inline; the user: "Ändra rösterna till ... spoken-player så ta bort det andra vi la in", then "lägg till lvl upp s
+644: **UI / controls pass after the user's play-test (2026-10-10, inline; nothing committed). NEXT: the abilities spec + build the user approved ("Ditt fö
+666: **G4a + G4b BUILT (2026-10-10, inline by the planner; the user: "Kör på, sen får vi diskutera talangträd och abilities"; nothing committed). NEXT:
+667: **G4b (souls lost at death) is built, see the entry right after this paragraph's G4a bullets; G4a first:**
+709: **Parallel loot work (2026-10-09): animated loot / inventory slice BUILT.**
+743: **Parallel combat work (2026-10-09): player block/parry BUILT; dodge confirmed as medium roll.**
+773: **2026-10-09 (the user: "Warrior yes ... Kör på"): G0, the world importer, is BUILT; the class is Warrior (letter 3100).**
+953: **Fix after E2-3 (the user: "wolf gör inga attacker just nu"):** the Young Wolf (E2-3a) chased to `STOP_DISTANCE` 1.3 yd and stopped there, but its b
+955: **E2-3 (2026-10-09, after the user's "Fortsätt"; inline, nothing committed): Garrick Padfoot, the boss, and the monster roster is complete.** Spec se
+964: **E2-3a (2026-10-09, after the user's "Läs handover och fortsätt köra"; inline, nothing committed): the kobold Vermin, the kobold Worker and the Yo
+971: **E2-2b (2026-10-09, the user: "Kan vi inte bara använda defias fienderna från wow? ... Du behöver bara använda human, det är allt som finns i no
+973: **E2-2 BUILT (2026-10-09, the user: "Ser bra ut, gå vidare" after the wolf; inline, nothing committed): the Defias Thug (first called thief; see E2-2
+975: **E2-1 BUILT (2026-10-09, the user said "kör" to the refactor and then the wolf with contact sheets to judge; inline, nothing committed): the wolf, i
+977: **E2-0 BUILT (2026-10-09, the user said "kör"; inline, nothing committed): the roster refactor, the kobold behaves as before.** Extractor: `monster::
+979: **Previously (2026-10-09): E2 specified, the enemy roster (wolf, Defias thief, Garrick, kobold geomancer)** (spec `docs/superpowers/specs/2026-10-09-e
+981: **Latest (2026-10-08, night): F is built, the Dark Souls HUD, plus two things the user asked for on the way: more kobolds, and corpses that lie right*
+990: **Latest (2026-10-08, night): D3 is built, the player's Dark Souls reactions and poise** (spec `docs/superpowers/specs/2026-10-08-player-reactions-des
+995: **Latest (2026-10-08, evening): D2b is built, WoW's own blood spurt** (spec `docs/superpowers/specs/2026-10-08-blood-design.md` with its "Built" note,
+999: **Latest (2026-10-08, later): D2a is built, impact feel from the data** (spec `docs/superpowers/specs/2026-10-08-impact-feel-design.md`, plan `docs/su
+1006: **Latest (2026-10-08, night): sound is in (sub-project D1)**, with WoW's own sounds (spec
+1027: **Latest (2026-10-08, evening): sub-project E is built for the kobold** (spec
+1121: **Uncommitted recorder.** `crates/wow-souls/src/record.rs` (new, with edits in `main.rs`, `boot.rs`,
+1131: **Showcase videos and the channel (2026-10-08).** The user's own screen recording was cut into a YouTube
+1141: **Second set of films (2026-10-11 / 12, from the user's 1009 s recording `Skärminspelning 2026-10-11 225709.mp4`).** After a first

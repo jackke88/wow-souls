@@ -89,6 +89,7 @@ fn follow_level(
     mut debt: Local<f32>,
     art: Option<Res<crate::loot::vfx::Art>>,
     audio: Option<ResMut<crate::audio::Audio>>,
+    mut mana: ResMut<crate::abilities::Mana>,
     mut avatar: Query<(Entity, &mut Health, &mut Stamina), With<Avatar>>,
 ) {
     let Some(game) = game else {
@@ -100,6 +101,11 @@ fn follow_level(
         (Some(o), Some(d)) => crate::gear_effect::character(&game, o, d),
         _ => None,
     };
+    // The mana pool follows the class tables, Intellect and Spirit every frame (cheap, and a piece of
+    // gear changes it without changing the level).
+    if let Some(c) = &character {
+        mana.sync(c.max_mana, c.total.spirit as f32);
+    }
     let (hp_max, st_max) = match &character {
         Some(c) => (c.max_health, max_stamina(level)),
         None => vitals(level),

@@ -22,8 +22,8 @@ pub fn centred(point: Vec2, size: Vec2) -> Vec2 {
 }
 
 pub fn plugin(app: &mut App) {
-    let art = resource_exists::<HudArt>;
-    app.add_systems(OnEnter(Phase::Playing), spawn.run_if(art))
+    let art = resource_exists::<HudArt>.or(super::theme::enabled);
+    app.add_systems(OnEnter(Phase::Playing), spawn.run_if(art.clone()))
         .add_systems(
             PostUpdate,
             update
@@ -33,7 +33,27 @@ pub fn plugin(app: &mut App) {
         );
 }
 
-fn spawn(mut commands: Commands, art: Res<HudArt>) {
+fn spawn(mut commands: Commands, art: Option<Res<HudArt>>) {
+    if super::theme::enabled() {
+        commands.spawn((
+            Reticle {
+                size: Vec2::splat(6.0),
+            },
+            Node {
+                position_type: PositionType::Absolute,
+                width: px(6),
+                height: px(6),
+                border_radius: BorderRadius::MAX,
+                border: UiRect::all(px(1)),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.9, 0.93, 1.0)),
+            BorderColor::all(Color::srgba(0.56, 0.65, 0.84, 0.8)),
+            Visibility::Hidden,
+        ));
+        return;
+    }
+    let Some(art) = art else { return };
     let key = "F20_LockCursor/lock";
     let s = art.m.sprite(key);
     let (dialog, place) = (

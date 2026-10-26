@@ -1,31 +1,87 @@
 # wow-souls
 
-A single-player, third-person action prototype in the World of Warcraft 1.12.1 world, built on
-[benilla](https://github.com/samwhosung/benilla)'s world engine (Rust + Bevy). It runs with no
-server, no login, no network and no WoW UI, and reads the game's data from your own 1.12.1 install
-without writing to it. It doesn't touch the retail client.
+A single-player, third-person souls-like action prototype in the World of Warcraft 1.12.1 world
+(Northshire, Elwynn Forest, Westfall), built on [benilla](https://github.com/samwhosung/benilla)'s
+world engine (Rust + Bevy). It runs with no server, no login, no network and no WoW UI, and reads
+the game's data from your own 1.12.1 install without writing to it.
+
+> **Fan project, prototype quality.** Not affiliated with or endorsed by Blizzard Entertainment or
+> FromSoftware. No game files from either company are in this repository: you need your own
+> World of Warcraft 1.12.1 client.
+
+## Play
+
+**You need**
+
+- Windows 10/11 64-bit and a GPU with Vulkan or DirectX 12.
+- Your own **World of Warcraft 1.12.1 (build 5875)** client: the folder with `WoW.exe` and `Data\`.
+- For the full combat animations: your own **Dark Souls Remastered** (Steam). Optional, see below.
+- [Rust](https://rustup.rs) (the right toolchain is picked automatically from `rust-toolchain.toml`).
+
+**Build and start:** clone or download the repository and double-click **`Play.bat`**. It builds the
+game the first time (10-20 minutes) and starts it. Or from a terminal:
+
+```powershell
+git clone <this repository> wow-souls
+cd wow-souls
+.\Play.bat
+```
+
+**First start**
+
+1. A folder dialog asks for your **WoW 1.12.1 folder** (the folder holding `WoW.exe`, or its `Data`
+   folder). The game checks that it is a 1.12.1 client and remembers it in
+   `%LOCALAPPDATA%\WoWSouls\wow-folder.txt`.
+2. The game offers to **build the combat animations** from your **Dark Souls Remastered** folder
+   (in Steam: right-click the game, Manage, Browse local files). It takes about half a minute, reads
+   your game folder without changing it, and checks every one of the 1,571 clips against the
+   developer's copy. The result goes to `%LOCALAPPDATA%\WoWSouls\anim`. Answer No to play with WoW's
+   own animations (walk/run, a simple roll and swing, older enemy moves; Mage spells need the built
+   animations).
+
+Neither game folder is ever written to, and nothing is downloaded.
+
+- **Pick another WoW folder:** `Play.bat --choose-wow`, or delete `wow-folder.txt`. If the
+  remembered folder disappears, the dialog opens again by itself.
+- **Build the animations later / again:** `Play.bat --setup-animations`.
+- **Override:** `WOW_DATA=<path to Data>` wins over the remembered folder; `WOWSOULS_ANIM_DIR` over
+  the animation folder.
+- **Saves and settings:** `%LOCALAPPDATA%\WoWSouls\`.
+
+To play without the source afterwards, put `target\ship\wow-souls.exe`,
+`crates\dsr-cache\target\release\wow-souls-dsr.exe`, `data\` and `anim\` in one folder and start the
+exe. Original Dark Souls (Prepare to Die Edition) is not supported: its files use older formats.
+
+## About the code
 
 Design and architecture: [docs/wow-souls-feasibility.md](docs/wow-souls-feasibility.md).
 What is copied from benilla, and the pinned commit: [docs/PROVENANCE.md](docs/PROVENANCE.md).
+Code is MIT OR Apache-2.0 ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)); the
+animation builder `crates/dsr-cache` (`wow-souls-dsr.exe`) and `crates/dsr-formats` are
+GPL-3.0-or-later and run as a separate program, never linked into the game. Quest data and voices: see [data/README.md](data/README.md).
+
+Source-to-original workflow: [docs/SOURCE-TO-ORIGINAL.md](docs/SOURCE-TO-ORIGINAL.md). Combat
+feel was first prototyped against Dark Souls Remastered / Elden Ring reference material on the
+developer's machine; that material stays local (`.gitignore`), and the goal is our own replacements.
+See [the dependency audit](docs/log/2026-10-17-wow-only-dependencies.md).
 
 ## Layout
 
-```
-C:\Spel\
-├─ World of Warcraft 1.12\   your install (read-only)
-├─ benilla\                  benilla checkout pinned at 2e82d34 (unmodified)
-└─ wow-souls\                this workspace
-   └─ WoW  ->  ..\World of Warcraft 1.12   (junction, gitignored)
-```
+The repository includes `crates/` (game and data code), `vendor/benilla/` (the complete engine
+source dependency closure and licences) and `data/world/` (active world/quest exports). No sibling
+engine checkout or database is needed to build/play. Normal open-source libraries are resolved
+through the pinned Cargo.lock. Your WoW 1.12.1 installation stays outside the repository and is
+read only. `anim/source/` holds the animation tables; its `.wsanim` clips exist only on the developer's
+machine or are built locally by `wow-souls-dsr setup` from `anim/provenance/clip-sources.tsv`.
 
-## Run
+## Run (development)
 
 ```powershell
-cargo run -p wow-souls
+cargo run -j 4 -p wow-souls
 ```
 
-The first build takes about 10 minutes. The dev build finds the install through the `WoW`
-junction. `WOW_DATA=<path to Data>` overrides it.
+The dev build finds the install through the `WoW` junction in the project folder, else the
+remembered folder or the dialog. `WOW_DATA=<path to Data>` overrides it.
 
 ## Controls
 
@@ -40,7 +96,7 @@ clears, Reset restores). The key line at the bottom left always shows the bindin
 | Ctrl | walk |
 | Left mouse / F / pad RB | equipped weapon's Souls R1 chain, or a committed ranged shot |
 | R / right mouse / pad RT | heavy attack, R2 (press again for its follow-up); the mouse buttons need the cursor captured |
-| Hold E / pad LB | weapon block with its DSR cut/stability; protects the front and costs stamina on impact |
+| Hold E / pad LB | weapon block with its damage cut and stability; protects the front and costs stamina on impact |
 | H | toggle 1H/2H grip for dagger, sword, axe or mace; large two-handed weapons stay two-handed |
 | Y / pad D-pad left | draw / put away the equipped ranged weapon |
 | C / pad LT | parry with the empty left hand; costs 14 stamina, active for 7 frames at 30 fps; a miss has recovery and no i-frames |
@@ -49,6 +105,7 @@ clears, Reset restores). The key line at the bottom left always shows the bindin
 | Up / Down / W / S / pad D-pad | select an inventory item; mouse clicks also select rows |
 | Enter / pad A / Use button | use the selected Abbey Salve; on a wearable item, equip it (WoW's quick equip: the first free legal slot) |
 | G / pad Select | the equipment page: WoW's character pane, all 19 equipment slots and the ammo slot (see Equipment below); G again closes it, Tab goes to the pack |
+| M / Menu → Map | area map: wheel / +/- / pad L2-R2 zoom, drag / arrows / left stick pan, click / Enter / A place a saved marker, Delete / X remove, R / Y find player, Esc / B close |
 | Up / Down, Left / Right (or [ ]), pad D-pad, pad LB / RB | on a quest offer, hand-in or in the quest log: look at the reward items (an icon each); the card on the left shows the item's tooltip and how it compares with what you wear in that slot. With several choices, Enter / A picks and a second press hands in |
 | V / pad X | quick-use an Abbey Salve while alive, idle and hurt (restores up to 30 health) |
 | Escape / pad B / Close button | close inventory (on the equipment page: first leaves a slot's list) |
@@ -56,11 +113,18 @@ clears, Reset restores). The key line at the bottom left always shows the bindin
 | Shift+Space / pad A | jump |
 | Mouse / arrow keys / right stick | orbit the camera |
 | Q / middle mouse / right-stick click | lock on to the enemy in front (20 yd); press again to let go; with nothing in reach, recentre the camera |
-| Esc / pad Start | the menu: Resume, Pack, Equipment, Quest log, Options (Sound, Graphics, Controls, Gamepad, Game), Quit game; the world stands still while it is open (an option), Esc / B steps back |
+| Clear horizontal mouse swipe / right-stick flick / look arrow | while locked, switch to the next enemy on that side; let the input rest before another switch |
+| Esc / pad Start | the menu: Resume, Pack, Equipment, Quest log, Map, Options (Sound, Graphics, Controls, Gamepad, Game), Quit game; the world stands still while it is open (an option), Esc / B steps back |
 | F1 | toggle the free-fly debug camera (hold right mouse to look, WASD, Space/C, Shift) |
 | F2 | draw the collision capsule and the blade segment |
 | F3 | hide the dev readout and the help line |
 | F6 | every creature home again, whole and calm (to fight them again without dying first) |
+
+Lock-on ignores small, slow and mainly vertical mouse movements. One continuous sweep or held stick produces one target change; a short neutral pause rearms it. Mouse orbit sensitivity does not change that gesture. The locked camera eases between targets; free orbit responds directly.
+
+The native HUD's top-center compass follows the camera and shows **?** for completed quests that can be handed in. It shows the destination NPC and distance, groups nearby bearings and uses edge arrows for goals behind the camera. A marker disappears after handing in or abandoning the quest; the original overhead NPC signs are preserved.
+
+First visits show a centered, softly fading area title: Elwynn Forest just outside Northshire's gates, Goldshire, Stormwind City and other main zones. Discoveries are saved per character; menus and dialogue defer the title. The embedded [EB Garamond](crates/wow-souls/assets/fonts/eb-garamond/SOURCE.txt) font includes its [SIL Open Font License](crates/wow-souls/assets/fonts/eb-garamond/OFL.txt), which must accompany distributions.
 
 An Xbox pad needs no setup: switch it on before starting the game. The help line at the bottom
 left says `pad: <name>` once the game sees it, `(last RB)` after each button, and `pad: none` if it
@@ -80,7 +144,9 @@ unfocused below other windows, never captures the cursor, and ignores live input
 | `WOWSOULS_DRIVE=x,y[,s]` | hold a constant stick push (x right, y forward), jumping every `s` seconds |
 | `WOWSOULS_SPIN=<rad/s>` | orbit the camera at a constant rate |
 | `WOWSOULS_TRACE=1` | log the body (4×/s) and the camera boom, sweep hit and body fade (2×/s) |
-| `WOWSOULS_OBSERVE[=x,y,z]` | render from an observer offset (default overhead) with the camera rig drawn |
+| `WOWSOULS_OBSERVE[=x,y,z]` | render from an observer offset (default overhead) with the camera rig drawn; `WOWSOULS_OBSERVE_HEIGHT=<yd>` raises its inspection target |
+| `WOWSOULS_VILLAGE=0` / `=1` | disable / explicitly enable six background road travellers around Goldshire; enabled with the packaged world; original scenery and residents stay unchanged |
+| `WOWSOULS_VILLAGE_TRACE=1` | log traveller routes, actual/expected locations and physical walking progress |
 | `WOWSOULS_BG=0` / `=1` | force an attended / unattended run |
 | `WOWSOULS_ATTACK=<s>[,<every>]` | press attack (R1) at `s` seconds, then on a period |
 | `WOWSOULS_HEAVY=<s>[,<every>]` | press heavy (R2) at `s` seconds, then on a period (only with the Dark Souls moveset) |
@@ -102,28 +168,51 @@ unfocused below other windows, never captures the cursor, and ignores live input
 | `WOWSOULS_LOOT_SEED=<n>` | fixed corpse-loot seed for verification; normal play rolls once per death |
 | `WOWSOULS_DODGE=<d>[,x,y]` | press evade `d` seconds after each enemy wind-up, the stick `(x right, y forward)` in the body's frame (none: backstep) |
 | `WOWSOULS_LOCK=<s>` | press the lock button once at `s` seconds |
+| `WOWSOULS_LOCK_SWITCH=<s>:<left\|right>,...` | direct target changes for camera checks |
+| `WOWSOULS_LOCK_INPUT=<s>:mouse:<dx>:<dy>:<duration>,...` | unattended raw-pixel gesture replay through the real detector; `s:stick:push:duration` replays a stick/key hold |
+| `WOWSOULS_LOCK_SCENE=crowd\|wide\|near\|moving\|actors` | unattended diagnostic targets; `actors` uses stationary NPC entries 197/823/196/152 from an isolated manifest |
+| `WOWSOULS_LOCK_TRACE=1` | log unshaken view/boom angular speeds against the camera's presentation clock |
 | `WOWSOULS_KOBOLD_AT=x,y[,z]` | move the first kobold (WoW coords: +x north, **+y west**); the others stand at fixed offsets from it |
 | `WOWSOULS_KOBOLDS=<n>` | how many kobolds (0 to 4; default 4 for a person playing, 1 in an unattended run or when `WOWSOULS_KOBOLD_AT` is set, so the scripted checks keep a lone kobold) |
 | `WOWSOULS_RESET=<s>` | press the F6 reset once at `s` seconds |
+| `WOWSOULS_HOGGERS=<n>` / `WOWSOULS_HOGGER_AT=x,y[,z]` | Hogger in the slice at `HOGGER_AT` (WoW coords; off unless one of these is set; in the manifest world he stands at his real place, Riverpark, with no switch). Unattended runs need `WOWSOULS_WORLD=1` for the manifest world |
+| `WOWSOULS_BOSS_HP=<0.05..1>` | a boss starts with that share of its health (phase two at once below 0.5) |
+| `WOWSOULS_BOSS_MUSIC=<path>` | one track (a path in the WoW client's data, e.g. `Sound\Music\ZoneMusic\Naxxramas\NaxxramasKelThuzad1.mp3`) as the boss theme instead of Hogger's list |
+| `wow-souls --trial-character <level> [slot]` | write a level 6-12 warrior with the 1.12 green gear set into a new save slot (never over a character) and exit |
 | `WOWSOULS_SHOT_DEATH=<s>[,<s>...]` | with `WOWSOULS_SHOT`: write the frame `s` seconds after the player's first death instead of at a fixed time (several: `<name>-<s>.png` each), for the YOU DIED banner |
-| `WOWSOULS_HUD=0` | the plain HUD (coloured rectangles) instead of Dark Souls' own |
+| `WOWSOULS_HUD=0` | plain development HUD instead of the native Elden Ring reference UI |
+| `WOWSOULS_UI=legacy`, `WOWSOULS_VITALS=legacy`, `WOWSOULS_DSR_CACHE` | retired and ignored; cannot enable DSR assets |
+| `WOWSOULS_COMPASS=0` | hide the native HUD compass (default on with the native UI); ready quests otherwise show return bearings |
+| `WOWSOULS_COMPASS_TRACE=1` | compass diagnostics once per real second: camera heading, target NPC, relative bearing, edge arrow and distance |
+| `WOWSOULS_AREA_TITLE=0` | hide first-visit area titles (default on with the native UI); discoveries live in each character's `areas-v1.txt` |
+| `WOWSOULS_AREAS_SAVE=<file>` | override the discovery journal; unattended checks use an isolated cache file by default |
+| `WOWSOULS_AREA_TRACE=1` | log actual player area changes, resolved title identity and WoW coordinates |
 | `WOWSOULS_HUD_GAIN=<x>` | multiply the colour of the HUD's art (Dark Souls' bars are dark; default 1.0) |
 | `WOWSOULS_SHOW_BODY=1` | start with the F2 overlay on |
 | `WOWSOULS_LOOK=s,f,h,c,b` | the human male's skin, face, hair style, hair colour, facial hair (default `2,1,3,1,1`) |
-| `WOWSOULS_DSVIEW=<clip>` | side-by-side: a cached Dark Souls clip (`1` is the roll, `a23_3000` or `r1_1` a sword move, `walk` / `run` / `sprint` / `lock_run_l`... a gait clip) on its own skeleton (gold gizmo bones and a pale blade, 1.5 yd to the avatar's right) beside the human playing the retargeted clip, looping in place; a magenta line lays Dark Souls' blade axis over the WoW sword; logs `dsview t=` 10×/s and, per loop, `blade error` (the WoW blade against Dark Souls') |
+| `WOWSOULS_RIG_VIEW=<clip>` | side-by-side: a cached Dark Souls clip (`1` is the roll, `straight_sword_light_1` or `r1_1` a sword move, `walk` / `run` / `sprint` / `lock_run_l`... a gait clip) on its own skeleton (gold gizmo bones and a pale blade, 1.5 yd to the avatar's right) beside the human playing the retargeted clip, looping in place; a magenta line lays Dark Souls' blade axis over the WoW sword; logs `rig_view t=` 10×/s and, per loop, `blade error` (the WoW blade against Dark Souls') |
 | `WOWSOULS_GRIP=rx,ry,rz` | rotate the held sword (degrees about the hand's axes) while Dark Souls clips pose the body, instead of the automatic fit onto Dark Souls' blade axis |
-| `WOWSOULS_DSVIEW=kobold:<clip>[@<s>]` | the kobold plays a kit clip (`small_1`, `big`, `run_strike`, `body_check`, `pounce`, `small_2` or a clip name such as `a00_2007`, `a00_2202`) beside the ghoul's gold skeleton, looping, or held at second `<s>` for a still |
+| `WOWSOULS_RIG_VIEW=kobold:<clip>[@<s>]` | the kobold plays a kit clip (`small_1`, `big`, `run_strike`, `body_check`, `pounce`, `small_2` or a clip name such as `body_reaction_08`, `body_death_03`) beside the ghoul's gold skeleton, looping, or held at second `<s>` for a still |
 | `WOWSOULS_MOVE=<name>` | the kobold's next attack is this kit move (once some band fits the distance) |
+| `WOWSOULS_MOTION=1` | experimental DSR-derived remix of every animation (default off): enemy attacks get a held wind-up, shorter hit windows and longer recovery (specs rebuilt from the clip); every attack, enemy and player, gets a trunk coil read from the hand's swing, zero inside the hit windows so the blade path is the DS clip's; neck/head/jaw/tail/ears become springs on flinches, deaths, guards, casts, evades, gaits and the stance, and at runtime on enemies' own WoW animations. Player timing, legs and arms are the DS clips. Editable constants: `crates/wow-souls/src/remix.rs`; report: `docs/log/2026-10-15-motion-remix.md` |
+| `WOWSOULS_WOLF_MOTION=1` | experimental DSR-derived wolf remix (default off): new bite/lunge rhythm and authored neck/head/jaw/tail curves; pose, root motion and hit windows stay synchronized. Applies to the Wolf family and Prowler's bite; source clips stay intact. Editable recipes: `crates/wow-souls/src/wolf_motion.rs`; report: `docs/log/2026-10-15-wolf-motion-experiment.md` |
 | `WOWSOULS_SEED=<n>` | seed the kobold's dice, for a repeatable fight |
+| `WOWSOULS_SLOT=<n>` | play character slot `n` (`%LOCALAPPDATA%\WoWSouls\characters\<n>\`: the six saves of one character); without it the slot played last (`active-v1.txt`), else the first character. The title lists the characters (up to 10); picking another relaunches the game on it with this switch, Delete / the pad's X archives one to `backup-<stamp>-character-<n>`. The loose saves of the single-character game move into slot 1 the first time. An unattended run never relaunches |
 | `WOWSOULS_SETTINGS=<file>` | the settings file (default `%LOCALAPPDATA%\WoWSouls\settings-v1.txt`); an unattended run neither reads nor writes it unless this names one |
 | `WOWSOULS_SYSMENU_SCRIPT=<s>:<verb>,...` | the system menu's hands at real second `s`: `open close up down left right confirm back delete capture:<chord> pad:<button>` (`capture:Shift+KeyG`, `pad:North`) |
+| `WOWSOULS_MAP_SCRIPT=<s>:<verb>,...` | map checks: `open close zoom:<steps> pan:<u>:<v> point:<u>:<v> mark clear center`; times are real seconds, coordinates are normalized map positions |
+| `WOWSOULS_MAP_SAVE=<file>` | override the per-character `map-v1.txt` marker journal; unattended checks default to an isolated cache file |
+| `WOWSOULS_MAP_AREA=<id>` | load another installed AreaTable map (default 12, Elwynn Forest); unavailable charts show a closable error |
 | `WOWSOULS_MENU=1|0` | show the title and character creation even in an unattended run, or skip them; `WOWSOULS_MENU_SCRIPT=<s>:<press>,...` is their hands (`race:<id> sex:<0|1> class:<slot> dial:<i>:<+1|-1> random create char:<c> up down left right confirm back backspace`), `WOWSOULS_MENU_HOUR=<h|h:mm>` the hour the title's scene is lit at (default dusk, 18:40), `WOWSOULS_CREATE_ALL=1` lets every race be chosen (the others are grey) |
 | `WOWSOULS_AUDIO=0|1|null` ||1\|null` | sound: `0` off, `1` the output device even in an unattended run, `null` the whole path with the output discarded and every sound logged; unset: on in an attended run, off in an unattended one |
 | `WOWSOULS_VOLUME=<0..1>` | master volume (default 0.6) |
 | `WOWSOULS_SHAKE=0` | camera shake off (default on: a blow's jolt scaled by its flinch level, see `shake.rs`) |
 | `WOWSOULS_BLOOD=<x>` | blood: `0` off (the gizmo cross returns), unset or `1` the default, a number scales how many droplet emitters a spurt gets (`2` = twice as much; capped at 10). WoW's own melee blood spurt, turned up (see `blood.rs`) |
 | `WOWSOULS_POISE=<n>` | the player's poise (default 0, a naked body: every blow flinches, as in Dark Souls); with `n`, blows soak it down by their poise damage and only the one that breaks it flinches (see `reaction.rs`, `hurt.rs`) |
-| `WOWSOULS_DSR_CACHE=<dir>` | read the Dark Souls cache from `<dir>` (default `cache/dsr`) |
+| `WOWSOULS_MANA=<n>` | a mage starts with `<n>` mana (at most its maximum; default full) |
+| `WOWSOULS_ANIM_DIR=<dir>` | editable animation library (default `anim/source`); see [animation guide](anim/README.md) |
+| `WOWSOULS_DATA_DIR=<root>` | package root containing anim/source and data/world; otherwise data is found beside the executable or in the current checkout |
+| `WOWSOULS_BIND_SAVE=<file>` | override this character's `soulbind-v1.txt` graveyard binding; unattended runs otherwise use an isolated file |
 | `WOW_DATA=<dir>` | the install's `Data` folder |
 
 ## Souls and the shops
@@ -139,6 +228,13 @@ item with its comparison against what you wear. Prices are WoW's copper at **4 s
 Cracked Leather Vest 60c = 240 souls, a kobold gives 150); a sale pays WoW's sell price at the same rate;
 quest copper is paid out as souls (an older save's copper became souls once). Switches:
 `WOWSOULS_SHOP_SCRIPT=<s>:<up|down|left|right|confirm|back>,...`, `WOWSOULS_SOULS_SCRIPT=<s>:give:<n>`.
+
+At a graveyard's **memorial stone**, press Interact (default X / pad Y) to **Bind Soul**. Your character
+then returns beside that stone after death and when starting again. A new binding replaces the previous
+one and is saved per character; binding is free and unavailable during combat. The carried souls you
+drop on death still wait at the death spot. Falkhaan Isenstrider, who offers *Rest and Relaxation*, also
+offers *Bind Your Soul*: bind at Northshire's memorial, then return to him. A previously saved binding
+counts too. The stones use the database's graveyards in Northshire, near Goldshire and at Eastvale.
 
 ## Abilities, rage, the trainer and the strongbox
 
@@ -156,6 +252,29 @@ slower for 10 s. Each plays WoW's own cast animation, spell models and sounds.
 **Brother Danil** also keeps the Abbey's strongbox ("I want to use the Abbey's strongbox"): souls banked there
 are safe from a death; a deposit pays a tenth to the Abbey, a withdrawal is free; the list offers all, 100 and
 1000. Switches: `WOWSOULS_RAGE=<n>`, `WOWSOULS_ABILITY_SCRIPT=<s>:<1-4|cycle|use>,...`.
+
+**The Mage** (the second class in the creation menu) has **mana** instead of rage: the blue bar under the
+stamina bar, 165 at level 1 from the class tables and Intellect, coming back with Spirit after five seconds
+without a cast (a level-up or a piece of gear lengthens the bar, it never refills it). The bar, the keys 1 to 4
+and the cycle work as above. Known from the start: **Fireball** (30 mana, 14 to 22 fire damage and a burn of
+2 over 4 s, 35 yd) and **Frost Armor** (60 mana, 30 armor for half an hour). **Khelden Bremen** in the Abbey
+teaches **Frostbolt** (400 souls, level 4: 18 to 20 frost damage, 40 % slower for 5 s, 30 yd) and
+**Fire Blast** (level 6: 24 to 32 fire damage, 20 yd, 8 s cooldown). A cast is a heavy two-handed move of
+Dark Souls', as Elden Ring's sorceries are (the staff raised, then swung or thrust with the whole body, a
+step forward), and the spell leaves the staff where the weapon connects: Fireball is the greatsword's
+two-handed R1, a lunging diagonal slash (the ball leaves the tip 0.6 s in, you may act again 1.2 s in of
+2.5 s), Frostbolt the staff's own R1 thrust (0.53 s, free from 1.0 s), Fire Blast the two-handed mace's R2,
+the staff raised overhead and slammed down (0.93 s, free from 1.7 s), Frost Armor the pyromancy buff gesture
+(the staff raised overhead; the body stays put). The body is committed from the press until the clip's
+recovery begins (from there a roll, an attack, another spell or a push of the stick leaves it). The missile
+steers a little (WoW's speed and range, Dark Souls' homing), and a blow that staggers you in the wind-up
+cancels the cast with its mana spent. The wind-up's flames in the hands and its sound end with the release
+(or with whatever breaks the cast); the release is a short flash. A hit lands with Dark Souls' own impact for the spell: Fireball bursts 1 m wide (it
+takes in whoever stands within that of the burst), flinches heavily (level 3) and pushes 1.2 m; Fire Blast
+flinches at level 2 and pushes 0.8 m; Frostbolt is a light flinch with a 0.7 m push. A missile goes at the
+locked enemy, else straight ahead; Fire Blast takes the locked enemy or the nearest one in front within its
+range, and nothing is paid when there is none. Enemy damage is not scaled: a level 1 mage has 52 health.
+Switch: `WOWSOULS_MANA=<n>` starts a mage with that much mana.
 
 ## Equipment
 
@@ -180,76 +299,41 @@ Wooden Shield, Recruit's Shirt, Pants and Boots). Not modelled: weapon skills le
 equip, durability, the Show Helm / Show Cloak options, the bag slots; armor and weapon damage do not change
 combat yet, the tooltip prints them.
 
-## Dark Souls data
+## Project animations and optional source tools
 
-The equipped warrior weapon selects one of 19 Souls profiles, including alternate 1H/2H grips,
-fist/unarmed, polearm/staff and bow/crossbow/gun/thrown. Melee uses original DSR animations,
-root motion, attack windows, stamina and parameter values retargeted to the WoW human. The roll
-is DSR's medium roll (`a00_0710`). Gun/staff and ranged physics contain documented adaptations;
-see [weapon sources, exact values and limits](docs/WARRIOR-WEAPONS.md). A missing selected family
-disables attacks instead of silently borrowing another weapon's moves. Build from your DSR install:
+All 19 weapon families, player locomotion/roll/defense/reactions/casts/interactions and creature
+kits load from tracked editable `.wsanim` files and tables in [`anim/source/`](anim/README.md).
+Missing or malformed text fails visibly; binary `.wscl` caches cannot replace it. Extraction
+manifests requiring source-game files are rejected without reading their source paths.
+The existing DSR-derived curves, timing and balance are preserved, with their provenance.
+
+The UI uses native Bevy layout, embedded project art and live text. Neither default nor old
+UI switches load DSR HUD art or fonts. `WOWSOULS_HUD=0` retains plain meters; F3 toggles dev text.
+
+`dsr-cache` and `dsr-formats` remain optional GPL-3.0-or-later developer tools, outside the
+production workspace, dependency graph and player package. Run them explicitly if studying
+or re-exporting source data:
 
 ```powershell
-cargo run -j 4 -p dsr-cache --bin wow-souls-dsr -- list      # the player's roll clips
-cargo run -j 4 -p dsr-cache --bin wow-souls-dsr -- extract   # writes cache/dsr/
-cargo run -j 4 -p dsr-cache --bin wow-souls-dsr -- weapons   # rebuilds all warrior families only
-cargo run -j 4 -p dsr-cache --bin wow-souls-dsr -- defense   # adds block/parry to an existing cache
-cargo run -j 4 -p dsr-cache --bin wow-souls-dsr -- loot      # adds contextual opening / pickup clips
-cargo run -j 4 -p dsr-cache --bin wow-souls-dsr -- locomotion # adds the walk, run, sprint and locked-on steps of each weapon set
-cargo run -j 4 -p dsr-cache --bin wow-souls-dsr -- loco --set a00 # measures the player's gait clips (read-only)
-cargo run -j 4 -p dsr-cache --bin wow-souls-dsr -- hud       # writes cache/dsr/hud/ (the HUD)
+cargo run -j 4 --manifest-path crates/dsr-cache/Cargo.toml -- bake-project --from cache/dsr --out anim/source
 ```
 
-Options: `--dsr <dir>` (default `C:/Spel/Dark Souls Remastered`), `--wow <Data dir>` (default
-`C:/Spel/World of Warcraft 1.12/Data`), `--out <dir>` (default `cache/dsr`), `--roll a00_NNNN`.
+They are not invoked by game startup, first run, normal builds or tests. Their source-game
+requirements and historical documentation apply only to those tools.
 
-- Read (never written): `chr/c0000.anibnd.dcx` (the player skeleton and TAE events) and
-  `chr/c0000_a*.anibnd.dcx` (the animations), `param/GameParam/GameParam.parambnd.dcx` and
-  `paramdef/paramdef.paramdefbnd.dcx` (stamina and damage multipliers) from DSR; the HumanMale
-  model from WoW's MPQs.
-- Written: `cache/dsr/manifest.txt` (version, the roll, the weapon class with one `move` line per
-  move and the blade `grip`, the retarget's measured errors, each source file's size and mtime:
-  the game ignores a stale cache) and the roll and the six moves as `.wscl` on the WoW skeleton
-  (`human_male/`) and on the DS skeleton (`c0000/`, for `WOWSOULS_DSVIEW`).
-- `cache/dsr/locomotion.txt` (`locomotion` command, also the last step of `extract`): the body's
-  own Dark Souls gait for each weapon motion set (`a00` one-handed and unarmed, `a10` two-handed
-  small weapons, `a12` great weapons, `a13` polearms, `a14` bow, `a16` crossbow): walk, run, sprint
-  and the locked-on steps in four directions, blended by speed
-  ([`dsloco.rs`](crates/wow-souls/src/dsloco.rs)). Without it WoW's walk and run stay.
-  `WOWSOULS_DSVIEW=walk` (or `run`, `sprint`, `lock_run_l`...) shows one beside the DS skeleton.
-- The HUD (`hud` command): the layout is `menu/menu.drb.dcx` (Dark Souls' own UI layout, dialogs of
-  named objects in a 1280 x 720 space), the art the menu atlases (`menu/menu_N.tpf.dcx`,
-  `menu/ENGLISH/menu_local.tpf.dcx`) and the font `font/english/DSFont24`. `cache/dsr/hud/` gets
-  one PNG per sprite, two font pages and `manifest.txt`. The game draws the health and stamina bars
-  (length = maximum x 3 layout px, a pale chip behind them that drains after a blow), the skull, the
-  souls counter (a kill gives the creature's `getSoul`, 150 for the kobold), an enemy bar with name
-  and damage number over every creature it has struck, the lock-on ring and YOU DIED from it, scaled
-  to the window height (`UiScale` = height / 720). Without it, or with `WOWSOULS_HUD=0`, the plain
-  HUD stays.
-- `cache/` is gitignored: nothing from the DSR install is committed.
-- Defense uses the Shortsword guard params, `a10_0100/0001/0101` raise/hold/lower, `a00_2080..2083`
-  guard breaks, and `a42_5100` empty-hand parry. Guard becomes active at 0.20 s in the raise; a held
-  guard slows movement and pauses stamina regeneration. Unblockable attacks bypass it. Successful parries
-  cancel eligible kobold, thug and Garrick swings and play their own `a00_2100`; wolves cannot be parried.
-  The front half-plane and parry timing/overlap rule are prototype choices; the DS engine rule is not in
-  the params. Riposte, enemy guard/parry, shield equipment and additive guard-hit clips remain separate work.
-- Roll audit (2026-10-09): the cache uses medium roll `a00_0710` (movement cancel 1.10 s), not fat
-  roll `a00_0720` (1.60 s). Automatic extraction refuses a missing medium clip instead of selecting a
-  different weight class. `--roll` still permits an explicit choice for comparisons.
-- Loot: `a00_7521` opens the native WoW chest lid, `a00_7522` takes from an open chest,
-  `a00_7520` collects corpse loot. Inventory and pending/claimed chest state save together in
-  `%LOCALAPPDATA%\WoWSouls\items-v1.txt`. Three authored supply caches sit on optional detours
-  behind the Abbey and at woodland camps; their one-time rewards are usable Abbey Salves.
-  The chapel passage is clear, prior claims survive the move, and five native WoW chests keep
-  their baseline positions and loot. See [placement report](docs/superpowers/specs/2026-10-09-treasure-placements-built.md).
-  Loot/inventory panels use the installed Dark Souls parchment texture and WoW's
-  real ItemDisplayInfo icons, with installed Georgia for text. Lootable corpses play WoW's native
-  LootFX model, animation and particles until collected.
-  The existing combat HUD is unchanged. Quest-only drops await the real quest-log eligibility
-  connection; see [loot build report](docs/superpowers/specs/2026-10-09-loot-built.md).
-- Licences: the extractor crates `dsr-formats` and `dsr-cache` are GPL-3.0-or-later (ported
-  from SoulsFormatsNEXT, SoulsAssetPipeline and HavokLib); the game (`wow-souls`) and the clip
-  format (`wscl`) are MIT OR Apache-2.0 and read only `.wscl` files.
+Verify the production workspace with no DSR/ER installation configured:
+
+```powershell
+cargo fmt -p wow-souls -p wow-world -p wscl -- --check
+cargo test -j 4 --workspace --offline
+cargo clippy -j 4 --workspace --all-targets --offline -- -D warnings
+cargo build -j 4 -p wow-souls --no-default-features --offline
+./tools/Test-WowOnly.ps1 -Binary target/debug/wow-souls.exe -WowData '<your WoW 1.12.1 Data folder>'
+```
+
+The last command audits all local source dependencies and runs an isolated package with
+absent DSR/cache paths and isolated saves. Full independent animation authorship remains
+separate work under [SOURCE-TO-ORIGINAL.md](docs/SOURCE-TO-ORIGINAL.md).
 
 ## Milestone 1
 
@@ -294,6 +378,6 @@ Continuing in a new chat: see [docs/HANDOVER.md](docs/HANDOVER.md).
   at 2 yd strikes (0.5 s into its wind-up) before an R1 or R2 can land. The held WoW short sword is
   turned so its blade lies along Dark Souls' (mean 3 degrees off, worst 12); its twist about the
   blade is as WoW authored it (`WOWSOULS_GRIP` tunes it by eye).
-- Without the Dark Souls cache the roll is procedural: its crouch is StealthStand, not a tucked
+- If project animation files are missing the roll is procedural: its crouch is StealthStand, not a tucked
   ball, so the legs swing wide through the somersault. Locked on, the body turns to roll along the
   stick, then back to the target.

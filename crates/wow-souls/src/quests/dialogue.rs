@@ -400,7 +400,9 @@ pub fn view(
             v.footer = if book.ender_spawned(id) {
                 format!("{look}Enter / A  Accept      Backspace / B  Decline")
             } else {
-                format!("{look}Enter / A  Accept (it cannot be handed in inside the valley)      Backspace / B  Decline")
+                format!(
+                    "{look}Enter / A  Accept (it cannot be handed in inside the valley)      Backspace / B  Decline"
+                )
             };
         }
         (Page::Progress(_), Some(q)) => {
@@ -757,6 +759,35 @@ mod tests {
         offer(&mut d54, 54);
         let v = view(&d54, &book, &log, &p, &items);
         assert!(v.footer.contains("cannot be handed in"), "{:?}", v.footer);
+    }
+
+    #[test]
+    fn elwynn_delivery_to_dughan_is_playable_in_the_expanded_world() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/world/elwynn.txt");
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            eprintln!("skipped: no Elwynn manifest at {}", path.display());
+            return;
+        };
+        let world = wow_world::manifest::parse(&text).expect("verified Elwynn manifest");
+        let book = QuestBook::new(&world);
+        let dughan = Npc::Creature(240);
+        assert!(book.is_spawned(MCBRIDE) && book.is_spawned(dughan));
+        assert!(book.enders(54).contains(&dughan));
+        assert!(book.playable(54));
+        let log = QuestLog::default();
+        let p = Player::warrior("Jacob", 1);
+        let mut d = open(
+            &book,
+            &log,
+            &p,
+            MCBRIDE,
+            "Marshal McBride",
+            Services::default(),
+        );
+        offer(&mut d, 54);
+        let v = view(&d, &book, &log, &p, &items);
+        assert!(!v.footer.contains("cannot be handed in"), "{:?}", v.footer);
     }
 
     #[test]

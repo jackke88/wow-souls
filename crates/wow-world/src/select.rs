@@ -5,7 +5,8 @@
 //! database's own links, never from a coordinate box:
 //!
 //! 1. **Spawns** are the creature and object spawns the valley contains, minus the ones that belong
-//!    to a seasonal game event; each gets the area id under it.
+//!    to a seasonal game event; each gets the area id under it. The named spawns outside the valley
+//!    ([`NAMED_SPAWNS`], the zone boss) come with them, their area 0.
 //! 2. **Quests** are those whose zone is Northshire Valley, plus every quest a creature spawned
 //!    in the valley (or one of its `alt` entries) or an object spawned in the valley starts or ends,
 //!    minus the seasonal ones.
@@ -20,7 +21,8 @@
 //!    those rows name (one level). **Vendors** and **equipment** are the rows of the selected creatures.
 //! 6. **Items** are what the selected quests require, hand out or reward, what the loot, the vendors'
 //!    stock and the equipment name, and the pieces a new character is dressed in
-//!    ([`crate::equipment::HUMAN_WARRIOR_KIT`]). A name with no row in `item_template` is skipped.
+//!    (every class's kit, [`crate::class::CLASSES`]) and the trial character's
+//!    ([`crate::equipment::TRIAL_GEAR`]). A name with no row in `item_template` is skipped.
 //! 7. **Areas** are the distinct areas under the selected spawns.
 //! 8. **Waypoints** are the `creature_movement` rows whose guid is a selected creature spawn's guid, so
 //!    a walking spawn (`movement == 2`) keeps its path and a path of a spawn outside the valley is
@@ -44,6 +46,28 @@ pub trait InValley {
     fn area_of(&self, x: f32, y: f32) -> u32;
     fn contains(&self, x: f32, y: f32) -> bool;
     fn name(&self, area: u32) -> String;
+
+    /// Full position: interiors can override the terrain above a spawn.
+    fn area_at(&self, pos: [f32; 3]) -> u32 {
+        self.area_of(pos[0], pos[1])
+    }
+
+    fn contains_at(&self, pos: [f32; 3]) -> bool {
+        self.contains(pos[0], pos[1])
+    }
+
+    fn quest_in_zone(&self, zone_or_sort: i32) -> bool {
+        zone_or_sort == NORTHSHIRE_VALLEY as i32
+    }
+
+    fn quest_level_ok(&self, _level: i32, _min_level: u32) -> bool {
+        true
+    }
+
+    /// Northshire's historical extra boss; a whole-zone selector needs no extras.
+    fn named_spawns(&self) -> &[u32] {
+        &NAMED_SPAWNS
+    }
 }
 
 /// The `gameobject_template.type` of a chest (herb and ore nodes are chests too).
@@ -63,25 +87,42 @@ pub fn spawns_without_path(w: &World) -> Vec<u32> {
     guids
 }
 
+/// Database guids of spawns outside the valley that the game wants anyway: the zone boss. Hogger
+/// (entry 448) has five rows around WoW (-9946, 604, 38); 80731 is the one that wanders 15 yd and
+/// the one the game uses.
+pub const NAMED_SPAWNS: [u32; 1] = [80_731];
+
 /// Select the connected set; see the module documentation for the rules.
 pub fn select(db: &Db, valley: &dyn InValley) -> World {
     // 1. Spawns inside the valley, with the area under each.
     let mut spawns: Vec<Spawn> = db
         .spawns
         .iter()
-        .filter(|s| !s.event && valley.contains(s.pos[0], s.pos[1]))
+        .filter(|s| !s.event && valley.contains_at(s.pos))
         .map(|s| Spawn {
-            area: valley.area_of(s.pos[0], s.pos[1]),
+            area: valley.area_at(s.pos),
             ..s.clone()
         })
         .collect();
+    // The named ones outside the valley (no valley area: 0).
+    let named: Vec<Spawn> = db
+        .spawns
+        .iter()
+        .filter(|s| valley.named_spawns().contains(&s.guid) && !s.event)
+        .filter(|s| !spawns.iter().any(|v| v.guid == s.guid))
+        .map(|s| Spawn {
+            area: 0,
+            ..s.clone()
+        })
+        .collect();
+    spawns.extend(named);
     spawns.sort_by_key(|s| s.guid);
     let mut object_spawns: Vec<ObjectSpawn> = db
         .object_spawns
         .iter()
-        .filter(|s| !s.event && valley.contains(s.pos[0], s.pos[1]))
+        .filter(|s| !s.event && valley.contains_at(s.pos))
         .map(|s| ObjectSpawn {
-            area: valley.area_of(s.pos[0], s.pos[1]),
+            area: valley.area_at(s.pos),
             ..s.clone()
         })
         .collect();
@@ -98,7 +139,7 @@ pub fn select(db: &Db, valley: &dyn InValley) -> World {
     let mut quest_ids: BTreeSet<u32> = db
         .quests
         .iter()
-        .filter(|q| q.zone_or_sort == NORTHSHIRE_VALLEY as i32)
+        .filter(|q| valley.quest_in_zone(q.zone_or_sort))
         .map(|q| q.id)
         .collect();
     let creature_rows = || db.creature_starts.iter().chain(&db.creature_ends);
@@ -116,7 +157,12 @@ pub fn select(db: &Db, valley: &dyn InValley) -> World {
     let mut quests: Vec<Quest> = db
         .quests
         .iter()
-        .filter(|q| !q.event && quest_ids.contains(&q.id))
+        .filter(|q| {
+            !q.event
+                && quest_ids.contains(&q.id)
+                && valley.quest_level_ok(q.level, q.min_level)
+                && !q.title.contains("<NYI>")
+        })
         .cloned()
         .collect();
     quests.sort_by_key(|q| q.id);
@@ -241,8 +287,10 @@ pub fn select(db: &Db, valley: &dyn InValley) -> World {
     item_ids.extend(vendors.iter().map(|v| v.item));
     item_ids.extend(equipment.iter().flat_map(|e| e.items));
     item_ids.extend(
-        crate::equipment::HUMAN_WARRIOR_KIT
+        crate::class::CLASSES
             .iter()
+            .flat_map(|c| c.kit.iter())
+            .chain(&crate::equipment::TRIAL_GEAR)
             .map(|&(_, id)| id),
     );
     item_ids.remove(&0);
@@ -304,6 +352,28 @@ pub fn select(db: &Db, valley: &dyn InValley) -> World {
 
     World {
         areas: areas.into_iter().collect(),
+        creature_meta: db
+            .creature_meta
+            .iter()
+            .filter(|m| npc_ids.contains(&m.entry))
+            .cloned()
+            .collect(),
+        spawn_pools: db
+            .spawn_pools
+            .iter()
+            .filter_map(|p| {
+                let members: Vec<_> = p
+                    .members
+                    .iter()
+                    .filter(|m| spawn_guids.contains(&m.guid))
+                    .cloned()
+                    .collect();
+                (!members.is_empty()).then(|| SpawnPool {
+                    members,
+                    ..p.clone()
+                })
+            })
+            .collect(),
         creatures,
         spawns,
         waypoints,
@@ -548,6 +618,8 @@ mod tests {
         kobold.alt = [257, 0, 0, 0];
 
         Db {
+            creature_meta: Vec::new(),
+            spawn_pools: Vec::new(),
             spawns: vec![
                 spawn(1, 38, -8900.0, -100.0),
                 spawn(2, 721, -9000.0, 100.0),
@@ -1085,5 +1157,49 @@ mod tests {
         let mut wanders = bare;
         wanders.spawns.iter_mut().for_each(|s| s.movement = 1);
         assert!(spawns_without_path(&wanders).is_empty());
+    }
+    #[test]
+    fn a_named_spawn_outside_the_valley_is_selected_with_its_template() {
+        let mut d = db();
+        let mut named = spawn(NAMED_SPAWNS[0], 448, -9947.88, 594.77);
+        named.pos[2] = 39.61;
+        d.spawns.push(named);
+        d.creatures.push(creature(448, "Hogger", 0, 0));
+        let w = select(&d, &Fake);
+        let hogger = w
+            .spawns
+            .iter()
+            .find(|s| s.guid == NAMED_SPAWNS[0])
+            .expect("the named spawn");
+        assert_eq!(hogger.area, 0);
+        assert_eq!(hogger.pos, [-9947.88, 594.77, 39.61]);
+        assert!(w.creatures.iter().any(|c| c.entry == 448));
+        // The valley's own selection is unchanged, and a named spawn that is an event one stays out.
+        assert_eq!(
+            ids(&w.spawns, |s| s.guid),
+            vec![1, 3, 5, 6, NAMED_SPAWNS[0]]
+        );
+        let mut seasonal = db();
+        let mut event_named = spawn(NAMED_SPAWNS[0], 448, -9947.88, 594.77);
+        event_named.event = true;
+        seasonal.spawns.push(event_named);
+        seasonal.creatures.push(creature(448, "Hogger", 0, 0));
+        let w = select(&seasonal, &Fake);
+        assert!(w.spawns.iter().all(|s| s.guid != NAMED_SPAWNS[0]));
+    }
+    #[test]
+    fn the_trial_gear_is_selected_with_the_items_even_when_nothing_else_names_it() {
+        let mut d = db();
+        for (_, id) in crate::equipment::TRIAL_GEAR {
+            d.items.push(item(id));
+        }
+        let w = select(&d, &Fake);
+        for (_, id) in crate::equipment::TRIAL_GEAR {
+            assert!(w.items.iter().any(|i| i.entry == id), "item {id}");
+        }
+        // Only those: another item the database has stays out.
+        d = db();
+        d.items.push(item(1220));
+        assert!(select(&d, &Fake).items.iter().all(|i| i.entry != 1220));
     }
 }

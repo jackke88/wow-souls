@@ -9,7 +9,7 @@ use bevy::prelude::*;
 
 use crate::avatar::Avatar;
 use crate::combat::{Action, ActionState, Stamina};
-use crate::dsclip::{read_clip, Grip};
+use crate::motion_clip::{read_clip, Grip};
 use crate::npc::{Brain, Hostile, Mind, Reaction};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,7 +111,7 @@ impl Playing {
 pub struct Clip {
     pub kind: Kind,
     pub wow: wscl::Clip,
-    pub ds: wscl::Clip,
+    pub reference: wscl::Clip,
     pub spec: Spec,
     pub push: Vec2,
 }
@@ -125,6 +125,81 @@ pub struct Attack {
 #[derive(Message, Clone, Copy)]
 pub struct Parried {
     pub point: Vec3,
+}
+
+pub const PERFECT_BLOCK_WINDOW: f32 = 0.16;
+pub const PERFECT_BLOCK_REARM: f32 = 0.45;
+pub const PERFECT_PARRY_WINDOW: f32 = 0.12;
+pub const PERFECT_PARRY_CONTACT: f32 = 0.10;
+
+/// A raise is eligible once. Tapping guard repeatedly does not renew the timing reward.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct GuardTiming {
+    pub rearm: f32,
+    pub eligible: bool,
+}
+
+impl GuardTiming {
+    pub fn tick(&mut self, dt: f32) {
+        self.rearm = (self.rearm - dt.max(0.0)).max(0.0);
+    }
+
+    pub fn raise(&mut self) {
+        self.eligible = self.rearm <= 0.0;
+        self.rearm = PERFECT_BLOCK_REARM;
+    }
+
+    pub fn catches(&self, d: Playing) -> bool {
+        self.eligible && d.kind == Kind::Raise && d.t >= 0.0 && d.t < PERFECT_BLOCK_WINDOW
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Training {
+    pub block_cost: f32,
+    pub block_chip: f32,
+    pub parry_discount: f32,
+    pub damage_taken: f32,
+}
+
+impl Default for Training {
+    fn default() -> Self {
+        Self {
+            block_cost: 1.0,
+            block_chip: 1.0,
+            parry_discount: 0.0,
+            damage_taken: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PerfectKind {
+    Block,
+    Parry,
+}
+
+#[derive(Message, Debug, Clone, Copy)]
+pub struct PerfectDefense {
+    pub attacker: Entity,
+    pub point: Vec3,
+    pub kind: PerfectKind,
+}
+
+/// Both bodies must meet their timing window; a parry during an early telegraph is ordinary.
+pub fn perfect_parry(d: Playing, attack_t: f32, hits: &[(f32, f32)]) -> bool {
+    d.kind == Kind::Parry
+        && d.active()
+        && d.spec
+            .active
+            .is_some_and(|(start, _)| d.t - start < PERFECT_PARRY_WINDOW)
+        && hits
+            .iter()
+            .any(|&(start, end)| attack_t >= start - PERFECT_PARRY_CONTACT && attack_t < end)
+}
+
+fn perfect_block_cost(normal: f32) -> f32 {
+    (normal * 0.35).max(1.0)
 }
 
 #[derive(Resource)]
@@ -310,19 +385,22 @@ pub fn load(text: &str, dir: &Path) -> Result<Option<Kit>, String> {
         .find_map(|line| line.strip_prefix("roll "))
         .ok_or("defense cache names no roll")?;
     let bones = read_clip(dir, "human_male", roll)?.bones();
-    let ds_bones = read_clip(dir, "c0000", roll)?.bones();
+    let reference_bones = read_clip(dir, "human_reference", roll)?.bones();
     let mut clips = Vec::new();
     for (kind, name, push) in lines {
         let wow = read_clip(dir, "human_male", &name)?;
-        let ds = read_clip(dir, "c0000", &name)?;
-        if usize::from(hand) >= wow.bones() || bones != wow.bones() || ds_bones != ds.bones() {
+        let reference = read_clip(dir, "human_reference", &name)?;
+        if usize::from(hand) >= wow.bones()
+            || bones != wow.bones()
+            || reference_bones != reference.bones()
+        {
             return Err("defense bone mismatch".into());
         }
         let spec = spec(&wow, kind, if kind == Kind::Parry { stamina } else { 0.0 })?;
         clips.push(Clip {
             kind,
             wow,
-            ds,
+            reference,
             spec,
             push,
         });
@@ -356,14 +434,16 @@ pub fn load(text: &str, dir: &Path) -> Result<Option<Kit>, String> {
 }
 
 fn startup(mut commands: Commands) {
-    let dir = crate::dsclip::cache_dir();
-    match crate::dsclip::checked_manifest(&dir).and_then(|s| load(&s, &dir)) {
+    let dir = crate::motion_clip::cache_dir();
+    match crate::motion_clip::checked_manifest(&dir).and_then(|s| load(&s, &dir)) {
         Ok(Some(kit)) => {
             info!("defense: sword block {:.0}% cut, stability {:.0}, active from {:.3}s; bare-hand parry {:?}, {:.2} yd, stamina {:.0}",
                 kit.cut * 100.0, kit.stability, kit.specs.raise.active.map_or(0.0, |w| w.0), kit.specs.parry.active, kit.radius, kit.specs.parry.cost);
             commands.insert_resource(kit);
         }
-        Ok(None) => info!("defense: no defense records; run wow-souls-dsr defense"),
+        Ok(None) => info!(
+            "defense: no defense records; restore anim/source/manifest.txt and its defense clips"
+        ),
         Err(why) => warn!("defense: unavailable ({why})"),
     }
 }
@@ -399,13 +479,40 @@ pub fn intercept(
     stamina: &mut Stamina,
     damage: f32,
 ) -> (f32, bool) {
+    let (damage, blocked, _) =
+        intercept_contact(kit, stats, body, from, action, stamina, damage, false);
+    (damage, blocked)
+}
+
+/// Melee contacts can be perfect; bolts, ground shocks and blasts use ordinary interception.
+#[allow(clippy::too_many_arguments)]
+pub fn intercept_contact(
+    kit: Option<&Kit>,
+    stats: Option<Attack>,
+    body: &Transform,
+    from: Vec3,
+    action: &mut Action,
+    stamina: &mut Stamina,
+    damage: f32,
+    melee: bool,
+) -> (f32, bool, bool) {
     let (Some(kit), Some(stats), ActionState::Defend(d)) = (kit, stats, action.state) else {
-        return (damage, false);
+        return (damage, false, false);
     };
     if !d.kind.guarding() || !d.active() || stats.unblockable || !in_front(body, from) {
-        return (damage, false);
+        return (damage, false, false);
     }
-    let (taken, cost, broken) = block(kit.cut, kit.stability, damage, stats.rate, stamina.cur);
+    let (taken, cost, _) = block(kit.cut, kit.stability, damage, stats.rate, stamina.cur);
+    let cost = cost * action.training.block_cost;
+    let perfect =
+        melee && action.guard_timing.catches(d) && stamina.cur >= perfect_block_cost(cost);
+    let (taken, cost) = if perfect {
+        action.guard_timing.eligible = false;
+        (0.0, perfect_block_cost(cost))
+    } else {
+        (taken * action.training.block_chip, cost)
+    };
+    let broken = !perfect && stamina.cur <= cost;
     stamina.spend(cost);
     if broken {
         let away = body.rotation.inverse() * (body.translation - from).normalize_or_zero();
@@ -418,16 +525,17 @@ pub fn intercept(
         "defense: blocked {damage:.1} -> {taken:.1}, stamina -{cost:.1} = {:.1}",
         stamina.cur
     );
-    (taken, true)
+    (taken, true, perfect)
 }
 
 /// During the parry volume the swung limb must be in front and overlap the creature's hurtbox.
 fn parry(
     kit: Option<Res<Kit>>,
     roster: Option<Res<crate::monster::Roster>>,
-    avatar: Query<(&Action, &Transform, &GlobalTransform, &RigPose), With<Avatar>>,
+    mut avatar: Query<(&mut Action, &Transform, &GlobalTransform, &RigPose), With<Avatar>>,
     mut foes: Query<
         (
+            Entity,
             &crate::species::Species,
             &GlobalTransform,
             &crate::hits::Hurtbox,
@@ -440,8 +548,10 @@ fn parry(
     >,
     mut previous: Local<Option<Vec3>>,
     mut parried_events: MessageWriter<Parried>,
+    mut perfect_events: MessageWriter<PerfectDefense>,
 ) {
-    let (Some(kit), Some(roster), Ok((action, body, at, pose))) = (kit, roster, avatar.single())
+    let (Some(kit), Some(roster), Ok((mut action, body, at, pose))) =
+        (kit, roster, avatar.single_mut())
     else {
         *previous = None;
         return;
@@ -450,7 +560,7 @@ fn parry(
         *previous = None;
         return;
     };
-    if d.kind != Kind::Parry || !d.active() {
+    if d.kind != Kind::Parry || !d.active() || action.parry_caught {
         *previous = None;
         return;
     }
@@ -458,11 +568,11 @@ fn parry(
         return;
     };
     let old = previous.replace(center);
-    for (species, xf, hurt, mut brain, mut reaction, mut intent, mut play) in &mut foes {
+    for (entity, species, xf, hurt, mut brain, mut reaction, mut intent, mut play) in &mut foes {
         let Mind::Attack { t, mv } = brain.mind else {
             continue;
         };
-        let Some(monster) = roster.get(species.0.kit) else {
+        let Some(monster) = roster.get(species.kit()) else {
             continue;
         };
         let (Some(parried), Some(attack)) =
@@ -470,9 +580,11 @@ fn parry(
         else {
             continue;
         };
-        let eligible = kit
-            .attack(species.0.kit, &attack.spec.name)
-            .is_some_and(|s| !s.unblockable);
+        // Snap Kick is a foot strike, not a weapon swing the player's hand can parry.
+        let eligible = attack.reach.is_none()
+            && kit
+                .attack(species.kit(), &attack.spec.name)
+                .is_some_and(|s| !s.unblockable);
         if !eligible || !parry_time(t, &attack.spec.hits) || !in_front(body, xf.translation()) {
             continue;
         }
@@ -503,15 +615,26 @@ fn parry(
         *intent = crate::motor::MoveIntent::default();
         play.clip = Some((crate::monster::MonsterClip::Parried, 0.0));
         parried_events.write(Parried { point: center });
+        action.parry_caught = true;
+        if perfect_parry(d, t, &attack.spec.hits) {
+            perfect_events.write(PerfectDefense {
+                attacker: entity,
+                point: center,
+                kind: PerfectKind::Parry,
+            });
+        }
         info!(
             "defense: parried {} {} at {:.3}s (hand {:.3}s, locked {:.3}s)",
             species.0.name, attack.spec.name, t, d.t, lock
         );
+        // A single parry cannot sweep a crowd into multiple resource/counter rewards.
+        break;
     }
 }
 
 pub fn plugin(app: &mut App) {
     app.add_message::<Parried>()
+        .add_message::<PerfectDefense>()
         .add_systems(Startup, startup)
         .add_systems(
             PostUpdate,
@@ -564,6 +687,167 @@ mod tests {
     use super::*;
 
     #[test]
+    fn perfect_guard_has_a_single_short_window_and_tapping_cannot_rearm_it() {
+        let spec = Spec {
+            duration: 0.5,
+            chain: 0.5,
+            evade: 0.5,
+            movement: 0.5,
+            active: Some((0.0, 0.5)),
+            cost: 0.0,
+        };
+        let mut timing = GuardTiming::default();
+        timing.raise();
+        let mut d = Playing::new(Kind::Raise, spec);
+        assert!(timing.catches(d));
+        d.t = PERFECT_BLOCK_WINDOW;
+        assert!(!timing.catches(d));
+        d.t = 0.02;
+        timing.eligible = false;
+        assert!(
+            !timing.catches(d),
+            "one successful contact consumes the raise"
+        );
+        timing.tick(0.1);
+        timing.raise();
+        assert!(
+            !timing.catches(d),
+            "rapid guard taps cannot farm perfect blocks"
+        );
+        timing.tick(PERFECT_BLOCK_REARM);
+        timing.raise();
+        assert!(timing.catches(d));
+        d.kind = Kind::Hold;
+        assert!(
+            !timing.catches(d),
+            "holding guard never refreshes the window"
+        );
+    }
+
+    #[test]
+    fn perfect_parry_needs_both_the_players_window_and_the_enemys_contact() {
+        let spec = Spec {
+            duration: 0.8,
+            chain: 0.8,
+            evade: 0.8,
+            movement: 0.8,
+            active: Some((0.0, 0.23)),
+            cost: 14.0,
+        };
+        let mut d = Playing::new(Kind::Parry, spec);
+        d.t = 0.05;
+        assert!(!perfect_parry(d, 0.1, &[(0.5, 0.65)]));
+        assert!(perfect_parry(d, 0.45, &[(0.5, 0.65)]));
+        assert!(perfect_parry(d, 0.55, &[(0.5, 0.65)]));
+        assert!(!perfect_parry(d, 0.65, &[(0.5, 0.65)]));
+        d.t = PERFECT_PARRY_WINDOW;
+        assert!(!perfect_parry(d, 0.55, &[(0.5, 0.65)]));
+        assert!(
+            d.active(),
+            "the rest of the authored window still allows an ordinary parry"
+        );
+    }
+
+    #[test]
+    fn perfect_block_is_melee_only_and_cannot_erase_an_unaffordable_guard_break() {
+        let dir = crate::motion_clip::cache_dir();
+        let kit = load(&crate::motion_clip::checked_manifest(&dir).unwrap(), &dir)
+            .unwrap()
+            .unwrap();
+        let stats = kit.attack("kobold", "small_1");
+        let mut a = Action {
+            state: ActionState::Defend(Playing::new(Kind::Raise, kit.specs.raise)),
+            ..default()
+        };
+        a.guard_timing.raise();
+        let mut stamina = Stamina::full(100.0);
+        let result = intercept_contact(
+            Some(&kit),
+            stats,
+            &Transform::IDENTITY,
+            Vec3::NEG_Z,
+            &mut a,
+            &mut stamina,
+            25.0,
+            true,
+        );
+        assert_eq!(result, (0.0, true, true));
+        assert!(stamina.cur < 100.0 && stamina.cur > 90.0);
+        assert!(!a.guard_timing.eligible);
+        let result = intercept_contact(
+            Some(&kit),
+            stats,
+            &Transform::IDENTITY,
+            Vec3::NEG_Z,
+            &mut a,
+            &mut stamina,
+            25.0,
+            true,
+        );
+        assert_eq!(result, (12.5, true, false));
+        a.guard_timing.eligible = true;
+        assert_eq!(
+            intercept_contact(
+                Some(&kit),
+                stats,
+                &Transform::IDENTITY,
+                Vec3::Z,
+                &mut a,
+                &mut stamina,
+                25.0,
+                true
+            ),
+            (25.0, false, false)
+        );
+        assert!(
+            !intercept_contact(
+                Some(&kit),
+                stats,
+                &Transform::IDENTITY,
+                Vec3::NEG_Z,
+                &mut a,
+                &mut stamina,
+                25.0,
+                false
+            )
+            .2
+        );
+        stamina.cur = 0.5;
+        assert!(
+            !intercept_contact(
+                Some(&kit),
+                stats,
+                &Transform::IDENTITY,
+                Vec3::NEG_Z,
+                &mut a,
+                &mut stamina,
+                25.0,
+                true
+            )
+            .2
+        );
+        assert!(matches!(a.state, ActionState::Defend(d) if matches!(d.kind, Kind::Break(_))));
+        a.state = ActionState::Defend(Playing::new(Kind::Raise, kit.specs.raise));
+        a.guard_timing.eligible = true;
+        stamina.cur = perfect_block_cost(stats.unwrap().rate * (1.0 - kit.stability / 100.0));
+        assert_eq!(
+            intercept_contact(
+                Some(&kit),
+                stats,
+                &Transform::IDENTITY,
+                Vec3::NEG_Z,
+                &mut a,
+                &mut stamina,
+                25.0,
+                true
+            ),
+            (0.0, true, true)
+        );
+        assert_eq!(stamina.cur, 0.0, "the exact discounted price is affordable");
+        assert!(matches!(a.state, ActionState::Defend(d) if d.kind == Kind::Raise));
+    }
+
+    #[test]
     fn parry_can_catch_later_combo_hits_but_not_the_final_recovery() {
         let windows = [(0.5, 0.6), (1.1, 1.2)];
         assert!(parry_time(0.0, &windows));
@@ -579,17 +863,9 @@ mod tests {
 
     #[test]
     fn install_defense_matches_windows_and_resolves_front_back_and_grab_hits() {
-        if std::env::var_os("DSR_DIR").is_none() {
-            return;
-        }
-        let dir = crate::dsclip::cache_dir();
-        if !dir.join("manifest.txt").exists() {
-            return;
-        }
-        let text = crate::dsclip::checked_manifest(&dir).unwrap();
-        let Some(kit) = load(&text, &dir).unwrap() else {
-            return;
-        };
+        let dir = crate::motion_clip::cache_dir();
+        let text = crate::motion_clip::checked_manifest(&dir).unwrap();
+        let kit = load(&text, &dir).unwrap().expect("project defense kit");
         assert!(kit.specs.raise.active.unwrap().0.abs() < 0.001);
         assert!((kit.specs.parry.active.unwrap().1 - 7.0 / 30.0).abs() < 0.001);
         assert_eq!(kit.specs.parry.cost, 14.0);
@@ -599,6 +875,7 @@ mod tests {
             ..default()
         };
         let mut stamina = Stamina::full(100.0);
+        // The installed DS Guarding flag starts at t=0, as asserted above.
         assert_eq!(
             intercept(
                 Some(&kit),
@@ -609,8 +886,9 @@ mod tests {
                 &mut stamina,
                 25.0
             ),
-            (25.0, false)
+            (12.5, true)
         );
+        stamina = Stamina::full(100.0);
         a.state = ActionState::Defend(Playing::new(Kind::Hold, kit.specs.hold));
         assert_eq!(
             intercept(

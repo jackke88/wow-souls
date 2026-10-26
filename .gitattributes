@@ -1,0 +1,6 @@
+# Serialized records intentionally retain empty trailing TSV columns.
+data/world/*.txt whitespace=-blank-at-eol
+anim/**/*.tsv whitespace=-blank-at-eol
+# Animation tables and the clip list are read byte for byte (setup hashes, game parsers): keep LF.
+anim/source/** text eol=lf
+anim/provenance/** text eol=lf

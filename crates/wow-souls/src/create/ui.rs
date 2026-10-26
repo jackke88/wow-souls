@@ -1,5 +1,5 @@
-//! The creation screen: WoW 1.12's `CharacterCreate.xml` layout in Bevy UI, drawn in Dark Souls
-//! parchment. The authored numbers are the client's own (a 1024 x 768 screen; the fork's
+//! The creation screen: WoW 1.12's `CharacterCreate.xml` layout in Bevy UI with the shared worn
+//! material theme. The authored numbers are the client's own (a 1024 x 768 screen; the fork's
 //! `benilla-app/src/char_create/screen.rs` is the worked reference); one authored unit is `720 / 768`
 //! layout pixels, because the HUD's `UiScale` already makes a layout pixel `window height / 720`.
 //!
@@ -21,12 +21,10 @@ use super::CreateData;
 use crate::menu::{Menu, MenuPress, MenuStyle, Press, Row, Screen};
 use crate::settle::Phase;
 
-const IVORY: Color = Color::srgb(0.88, 0.85, 0.77);
-const GOLD: Color = Color::srgb(0.92, 0.76, 0.28);
-const GOLD_DIM: Color = Color::srgb(0.49, 0.39, 0.22);
-const MUTED: Color = Color::srgb(0.62, 0.6, 0.54);
+use crate::hud::theme::{GOLD, IVORY, MUTED};
+const GOLD_DIM: Color = crate::hud::theme::EDGE;
 const WARN: Color = Color::srgb(0.85, 0.42, 0.32);
-const INK: Color = Color::srgba(0.04, 0.03, 0.02, 0.88);
+const INK: Color = crate::hud::theme::INK;
 const PLATE: Color = Color::srgba(0.05, 0.04, 0.03, 0.78);
 const PLATE_HOT: Color = Color::srgba(0.2, 0.16, 0.08, 0.9);
 const FILL_ALLIANCE: Color = Color::srgba(0.03, 0.045, 0.1, 0.9);
@@ -60,6 +58,7 @@ pub enum Act {
     Randomize,
     Create,
     Back,
+    Name,
     /// Hold to turn the body.
     RotateLeft,
     RotateRight,
@@ -77,6 +76,7 @@ impl Act {
             Act::Randomize => Press::Randomize,
             Act::Create => Press::Create,
             Act::Back => Press::Back,
+            Act::Name => Press::NameFocus,
             Act::RotateLeft | Act::RotateRight | Act::Model => return None,
         })
     }
@@ -188,6 +188,10 @@ fn text(ctx: &Ctx, size: f32, color: Color, value: &str) -> impl Bundle {
 
 /// A parchment-framed (or plain dark) panel's look.
 fn parchment(ctx: &Ctx, node: &mut EntityCommands) {
+    if crate::hud::theme::enabled() {
+        crate::hud::theme::dress(node);
+        return;
+    }
     node.insert(BackgroundColor(INK));
     if let Some(image) = &ctx.parchment {
         let mut img = ImageNode::new(image.clone());
@@ -261,6 +265,10 @@ fn spawn_screen(commands: &mut Commands, ctx: &Ctx, menu: &Menu) {
                 },
             ));
             left_tower(root, ctx);
+            root.spawn((
+                abs(28.0, 18.0, 650.0, 40.0),
+                text(ctx, 26.0, IVORY, "Create character"),
+            ));
             right_stack(root, ctx);
             bottom_bar(root, ctx);
         });
@@ -641,6 +649,8 @@ fn bottom_bar(root: &mut ChildSpawnerCommands, ctx: &Ctx) {
             c.spawn(text(ctx, 17.0, GOLD, ctx.caption("NAME", "Name")));
             c.spawn((
                 FocusRow(Row::Name),
+                Button,
+                Act::Name,
                 Outline::new(u(2.0), u(1.0), CLEAR),
                 Node {
                     width: u(170.0),
@@ -713,8 +723,8 @@ fn bottom_bar(root: &mut ChildSpawnerCommands, ctx: &Ctx) {
             (
                 Act::Create,
                 Row::Create,
-                "Prepare to die",
-                160.0,
+                "Create character",
+                190.0,
                 35.0,
                 16.0,
             ),
@@ -1017,7 +1027,8 @@ fn refresh(
                 None,
             ),
             Dyn::NameText => {
-                let caret = ((time.elapsed_secs() / BLINK) as u32).is_multiple_of(2);
+                let caret = menu.focus() == Row::Name
+                    && ((time.elapsed_secs() / BLINK) as u32).is_multiple_of(2);
                 (
                     format!("{}{}", sel.name, if caret { "_" } else { " " }),
                     None,
@@ -1028,7 +1039,7 @@ fn refresh(
                     (menu.message.clone(), Some(WARN))
                 } else if !sel.playable() {
                     (
-                        "Only a male Human Warrior can be made yet; the others are coming."
+                        "Choose a male Human Warrior or Mage. Other characters are not available yet."
                             .to_string(),
                         Some(MUTED),
                     )
@@ -1037,8 +1048,13 @@ fn refresh(
                 }
             }
             Dyn::Create => {
-                // The label does not change; kept so a replace warning could recolour it later.
-                continue;
+                if !sel.playable() {
+                    ("Unavailable".into(), Some(MUTED))
+                } else if crate::character::check_name(&sel.name).is_err() {
+                    ("Enter a name".into(), Some(MUTED))
+                } else {
+                    ("Create character".into(), Some(GOLD))
+                }
             }
             _ => continue,
         };

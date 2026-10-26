@@ -1,0 +1,1004 @@
+# project-animations 1; source-derived DSR reference data
+wscl-cache 6
+extractor 5
+roll body_roll
+backstep body_backstep
+class straight_sword
+move r1_1 straight_sword_light_1 judge 0 stamina 20 mult 1.00 level 1 poise 0 stop 0.08 knock 0.72 radius 0.40
+move r1_2 straight_sword_light_2 judge 10 stamina 20 mult 1.00 level 1 poise 0 stop 0.08 knock 0.84 radius 0.40
+move r1_3 straight_sword_light_3 judge 20 stamina 20 mult 1.00 level 1 poise 0 stop 0.08 knock 0.72 radius 0.40
+move r2_1 straight_sword_heavy_1 judge 100 stamina 45 mult 1.35 level 2 poise 0 stop 0.08 knock 0.95 radius 0.30
+move r2_2 straight_sword_heavy_2 judge 110 stamina 35 mult 1.25 level 2 poise 0 stop 0.08 knock 0.90 radius 0.35
+move roll_attack straight_sword_rolling_attack judge 540 stamina 20 mult 0.90 level 1 poise 0 stop 0.08 knock 0.80 radius 0.35
+grip -0.37717 -0.20852 -0.90237 0.00000 1.00000 0.00000
+monster kobold chr kobold_reference npc 206000 hp 203 poise 0 scale 0.6165
+parried body_stagger_01
+souls kobold 150
+attack small_1 body_attack_01 judge 100 phys 138 poise 10 level 1 radius 0.30 radius2 0.00 stop 0.00 knock 0.45
+attack small_2 body_attack_02 judge 110 phys 142 poise 10 level 1 radius 0.30 radius2 0.00 stop 0.00 knock 0.45
+attack big body_attack_03 judge 120 phys 195 poise 20 level 2 radius 0.30 radius2 0.00 stop 0.00 knock 1.00
+attack run_strike body_attack_04 judge 130 phys 186 poise 20 level 2 radius 0.40 radius2 0.00 stop 0.00 knock 1.00
+attack body_check body_attack_05 judge 140 phys 106 poise 30 level 5 radius 0.20 radius2 0.20 stop 0.00 knock 1.37
+attack pounce body_attack_07 judge 160 phys 124 poise 20 level 1 radius 0.60 radius2 0.60 stop 0.00 knock 1.00
+react 1 body_reaction_01 push -0.244 0.058
+react 1 body_reaction_02 push -0.140 0.141
+react 1 body_reaction_05 push 0.196 0.196
+react 1 body_reaction_06 push 0.202 -0.159
+react 1 body_reaction_07 push 0.207 0.006
+react 2 body_reaction_08 push -0.342 -0.030
+react 2 body_reaction_05 push 0.196 0.196
+react 2 body_reaction_06 push 0.202 -0.159
+react 2 body_reaction_07 push 0.207 0.006
+death body_death_03 push -0.602 0.101
+death body_death_05 push 0.216 0.254
+think near 2.0 mid 5.0 far 10.0 out 20.0
+reach 53 45
+monster wolf chr wolf_reference npc 334000 hp 84 poise 0 scale 1.2744
+souls wolf 80
+attack bite body_attack_01 judge 100 phys 104 poise 20 level 1 radius 0.50 radius2 0.00 stop 0.00 knock 0.45
+attack lunge body_attack_05 judge 130 phys 100 poise 20 level 1 radius 0.50 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.100 -0.264
+react 1 body_reaction_02 push -0.465 -0.524
+react 1 body_reaction_03 push -0.205 -0.165
+react 2 body_reaction_05 push -0.446 -0.419
+react 2 body_reaction_06 push -0.143 0.350
+react 2 body_reaction_07 push -0.630 -0.344
+react 2 body_reaction_08 push -0.415 0.377
+death body_death_06 push -0.226 -0.551
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 47 29
+monster direwolf chr wolf_reference npc 334000 hp 84 poise 0 scale 1.1795
+reference direwolf_reference
+souls direwolf 80
+attack bite body_attack_01 judge 100 phys 104 poise 20 level 1 radius 0.50 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.092 -0.244
+react 1 body_reaction_02 push -0.430 -0.485
+react 1 body_reaction_03 push -0.190 -0.153
+react 2 body_reaction_05 push -0.412 -0.388
+react 2 body_reaction_06 push -0.132 0.324
+react 2 body_reaction_07 push -0.583 -0.319
+react 2 body_reaction_08 push -0.384 0.349
+death body_death_06 push -0.209 -0.510
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 35 25
+monster thug chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1452
+parried body_stagger_01
+souls thug 100
+attack slash_1 body_attack_04 judge 130 phys 150 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack slash_2 body_attack_05 judge 140 phys 153 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.222 0.125
+react 1 body_reaction_02 push -0.212 0.273
+react 1 body_reaction_03 push 0.206 0.115
+react 2 body_reaction_05 push 0.202 0.414
+react 2 body_reaction_06 push 0.202 -0.419
+react 2 body_reaction_07 push 0.262 0.014
+react 2 body_reaction_08 push -0.365 0.064
+death body_death_05 push -0.789 -0.111
+death body_death_01 push 0.314 0.379
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 97 79
+monster thug_female chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1725
+parried body_stagger_01
+reference thug_female_reference
+souls thug_female 100
+attack slash_1 body_attack_04 judge 130 phys 150 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack slash_2 body_attack_05 judge 140 phys 153 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.228 0.128
+react 1 body_reaction_02 push -0.217 0.279
+react 1 body_reaction_03 push 0.211 0.117
+react 2 body_reaction_05 push 0.207 0.424
+react 2 body_reaction_06 push 0.207 -0.428
+react 2 body_reaction_07 push 0.269 0.014
+react 2 body_reaction_08 push -0.373 0.066
+death body_death_05 push -0.808 -0.113
+death body_death_01 push 0.321 0.388
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 96 78
+monster human_axe_2h chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1452
+parried body_stagger_01
+reference human_axe_2h_reference
+souls human_axe_2h 100
+attack axe_1 axe_2h_light_1 judge 200 phys 114 poise 53 level 2 radius 0.35 radius2 0.20 stop 0.08 knock 0.90
+attack-source axe_1 chr human_reference weapon 701000 variation 3000 scale 1.134734
+attack-grip axe_1 hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+attack axe_2 axe_2h_light_2 judge 210 phys 114 poise 53 level 2 radius 0.35 radius2 0.20 stop 0.08 knock 0.65
+attack-source axe_2 chr human_reference weapon 701000 variation 3000 scale 1.134734
+attack-grip axe_2 hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+react 1 body_reaction_01 push -0.222 0.125
+react 1 body_reaction_02 push -0.212 0.273
+react 1 body_reaction_03 push 0.206 0.115
+react 2 body_reaction_05 push 0.202 0.414
+react 2 body_reaction_06 push 0.202 -0.419
+react 2 body_reaction_07 push 0.262 0.014
+react 2 body_reaction_08 push -0.365 0.064
+death body_death_05 push -0.789 -0.111
+death body_death_01 push 0.314 0.379
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 97 79
+monster human_bandit chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1452
+parried body_stagger_01
+reference human_bandit_reference
+souls human_bandit 100
+attack sword straight_sword_light_1 judge 0 phys 80 poise 20 level 1 radius 0.40 radius2 0.20 stop 0.08 knock 0.72
+attack-source sword chr human_reference weapon 201000 variation 2300 scale 1.134734
+attack-grip sword hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+attack kick straight_sword_followup judge 410 phys 44 poise 10 level 1 radius 0.50 radius2 0.00 stop 0.00 knock 0.45
+attack-source kick chr human_reference weapon 201000 variation 2300 scale 1.134734
+attack-reach kick bones 70 81
+attack-adaptation kick snap-kick source-level 5 source-mult 0 source-guard-rate 70 level 1 phys 44 poise 10 knock 0.45 guard-rate 20 unblockable 0
+react 1 body_reaction_01 push -0.222 0.125
+react 1 body_reaction_02 push -0.212 0.273
+react 1 body_reaction_03 push 0.206 0.115
+react 2 body_reaction_05 push 0.202 0.414
+react 2 body_reaction_06 push 0.202 -0.419
+react 2 body_reaction_07 push 0.262 0.014
+react 2 body_reaction_08 push -0.365 0.064
+death body_death_05 push -0.789 -0.111
+death body_death_01 push 0.314 0.379
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 97 79
+monster human_bandit_female chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1725
+parried body_stagger_01
+reference human_bandit_female_reference
+souls human_bandit_female 100
+attack sword straight_sword_light_1 judge 0 phys 80 poise 20 level 1 radius 0.40 radius2 0.20 stop 0.08 knock 0.72
+attack-source sword chr human_reference weapon 201000 variation 2300 scale 1.161737
+attack-grip sword hand 96 weapon 56 axis -0.231395 -0.296652 -0.926528 blade 0.000000 1.000000 0.000000
+attack kick straight_sword_followup judge 410 phys 44 poise 10 level 1 radius 0.50 radius2 0.00 stop 0.00 knock 0.45
+attack-source kick chr human_reference weapon 201000 variation 2300 scale 1.161737
+attack-reach kick bones 68 80
+attack-adaptation kick snap-kick source-level 5 source-mult 0 source-guard-rate 70 level 1 phys 44 poise 10 knock 0.45 guard-rate 20 unblockable 0
+react 1 body_reaction_01 push -0.228 0.128
+react 1 body_reaction_02 push -0.217 0.279
+react 1 body_reaction_03 push 0.211 0.117
+react 2 body_reaction_05 push 0.207 0.424
+react 2 body_reaction_06 push 0.207 -0.428
+react 2 body_reaction_07 push 0.269 0.014
+react 2 body_reaction_08 push -0.373 0.066
+death body_death_05 push -0.808 -0.113
+death body_death_01 push 0.321 0.388
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 96 78
+monster garrick chr defias_brawler_reference npc 240000 hp 110 poise 0 scale 1.1347
+parried body_stagger_01
+souls garrick 300
+attack double body_attack_03 judge 120 phys 140 poise 20 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack triple body_attack_04 judge 130 phys 155 poise 20 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack lunge body_attack_06 judge 150 phys 179 poise 30 level 2 radius 0.40 radius2 0.00 stop 0.00 knock 1.00
+attack dash body_attack_07 judge 160 phys 173 poise 10 level 2 radius 0.40 radius2 0.00 stop 0.00 knock 1.00
+attack quick body_attack_09 judge 180 phys 105 poise 10 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push 0.187 -0.144
+react 1 body_reaction_02 push 0.181 0.157
+react 1 body_reaction_03 push -0.431 0.028
+react 2 body_reaction_05 push 0.215 0.423
+react 2 body_reaction_06 push 0.222 -0.431
+react 2 body_reaction_07 push 0.279 0.005
+react 2 body_reaction_08 push -0.390 0.059
+death body_death_05 push -0.638 0.072
+death body_death_06 push 0.532 0.084
+think near 2.0 mid 5.0 far 10.0 out 20.0
+reach 97 79
+monster hogger chr hogger_brute_reference npc 225000 hp 1215 poise 120 scale 0.3071
+souls hogger 3000
+attack overhead body_attack_01 judge 100 phys 280 poise 60 level 10 radius 1.20 radius2 0.40 stop 0.00 knock 1.80
+attack heavy_swing body_attack_02 judge 110 phys 310 poise 60 level 10 radius 1.20 radius2 0.40 stop 0.00 knock 1.80
+attack step_smash body_attack_03 judge 120 phys 280 poise 60 level 10 radius 1.20 radius2 0.40 stop 0.00 knock 1.80
+attack sweep body_attack_04 judge 130 phys 280 poise 60 level 10 radius 1.20 radius2 0.40 stop 0.00 knock 1.80
+attack lunge_smash body_attack_05 judge 140 phys 310 poise 60 level 10 radius 1.20 radius2 0.40 stop 0.00 knock 1.80
+attack quick body_attack_06 judge 150 phys 280 poise 60 level 10 radius 1.20 radius2 0.40 stop 0.00 knock 1.80
+attack backhand body_attack_07 judge 160 phys 280 poise 60 level 10 radius 1.20 radius2 0.40 stop 0.00 knock 1.80
+attack feint_plunge body_attack_14 judge 170 phys 310 poise 60 level 6 radius 1.00 radius2 1.00 stop 0.00 knock 1.00
+attack charge body_attack_08 judge 171 phys 120 poise 30 level 2 radius 2.00 radius2 0.00 stop 0.00 knock 1.00
+attack hop_back body_evade_variant judge 171 phys 120 poise 30 level 2 radius 2.00 radius2 0.00 stop 0.00 knock 1.00
+react 1 body_reaction_01 push -0.775 0.179
+react 2 body_reaction_01 push -0.775 0.179
+death body_death_01 push -0.697 0.020
+death body_critical_response push 0.230 0.459
+think near 3.0 mid 5.0 far 10.0 out 20.0
+reach 40 31
+monster hogger_knight chr hogger_knight_reference npc 410000 hp 1500 poise 130 scale 0.5049
+reference hogger_knight_reference
+souls hogger_knight 3000
+attack slash body_attack_01 judge 100 phys 165 poise 30 level 2 radius 0.40 radius2 0.00 stop 0.00 knock 1.50
+attack step_slash body_attack_03 judge 120 phys 200 poise 35 level 3 radius 0.40 radius2 0.00 stop 0.00 knock 2.00
+attack close_two body_attack_12 judge 220 phys 140 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.60
+attack pounce body_attack_04 judge 130 phys 180 poise 45 level 6 radius 0.40 radius2 0.00 stop 0.00 knock 0.00
+attack lunge body_attack_05 judge 160 phys 180 poise 50 level 7 radius 0.40 radius2 0.00 stop 0.00 knock 2.50
+attack thrust body_attack_08 judge 190 phys 190 poise 30 level 7 radius 0.40 radius2 0.00 stop 0.00 knock 2.50
+attack spin body_attack_09 judge 200 phys 190 poise 45 level 9 radius 0.40 radius2 0.00 stop 0.00 knock 2.00
+attack backflip body_attack_11 judge 210 phys 150 poise 30 level 3 radius 0.40 radius2 0.00 stop 0.00 knock 1.60
+attack head_butt body_attack_24 judge 240 phys 150 poise 45 level 2 radius 0.40 radius2 0.70 stop 0.00 knock 1.80
+attack flip_slam body_attack_06 judge 170 phys 250 poise 300 level 6 radius 1.00 radius2 0.00 stop 0.00 knock 2.00
+attack-shock flip_slam judge 180 at 2.467 radius 3.00 phys 210 poise 40 level 6 knock 1.60
+attack overhead body_attack_10 judge 140 phys 150 poise 30 level 6 radius 0.40 radius2 0.00 stop 0.00 knock 1.50
+attack-shock overhead judge 180 at 0.900 radius 1.50 phys 210 poise 40 level 6 knock 1.60
+attack frenzy body_attack_14 judge 140 phys 150 poise 30 level 6 radius 0.40 radius2 0.00 stop 0.00 knock 1.50
+attack-blast frenzy at 5.400 radius 7.00 phys 220 poise 300 level 10 knock 2.00
+react 1 body_reaction_05 push -0.036 0.234
+react 1 body_reaction_06 push -0.114 0.227
+react 1 body_reaction_07 push -0.322 0.044
+react 1 body_reaction_08 push -0.450 0.279
+react 2 body_reaction_11 push -0.036 0.234
+react 2 body_reaction_12 push -0.185 0.351
+react 2 body_reaction_13 push -0.504 0.049
+react 2 body_reaction_14 push -0.450 0.279
+death body_death_01 push -0.291 0.095
+think near 3.0 mid 6.0 far 20.0 out 30.0
+reach 41 32
+monster gnoll chr murloc_reference npc 255000 hp 85 poise 0 scale 0.9054
+parried body_stagger_01
+souls gnoll 100
+attack swing_1 body_attack_01 judge 100 phys 165 poise 20 level 1 radius 0.20 radius2 0.00 stop 0.00 knock 0.45
+attack swing_2 body_attack_05 judge 140 phys 164 poise 20 level 1 radius 0.20 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push 0.227 -0.010
+react 1 body_reaction_02 push -0.347 -0.081
+react 1 body_reaction_03 push -0.138 0.168
+react 2 body_reaction_05 push 0.194 0.371
+react 2 body_reaction_06 push 0.197 -0.374
+react 2 body_reaction_07 push 0.241 0.009
+react 2 body_reaction_08 push -0.327 0.052
+death body_death_06 push -0.489 0.080
+death body_death_03 push -0.425 0.045
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 41 32
+monster murloc chr murloc_reference npc 255000 hp 85 poise 0 scale 0.7765
+parried body_stagger_01
+souls murloc 100
+attack lunge body_attack_06 judge 150 phys 170 poise 30 level 1 radius 0.20 radius2 0.00 stop 0.00 knock 1.00
+attack-adaptation lunge tame source-level 2 source-phys 210 level 1 phys 170 poise 30 knock 1.00 guard-rate 40 blockable
+attack flurry body_attack_08 judge 170 phys 105 poise 15 level 1 radius 0.20 radius2 0.00 stop 0.00 knock 0.35
+attack-adaptation flurry tame source-level 1 source-phys 160 level 1 phys 105 poise 15 knock 0.35 guard-rate 25 blockable
+react 1 body_reaction_01 push 0.194 -0.008
+react 1 body_reaction_02 push -0.297 -0.070
+react 1 body_reaction_03 push -0.119 0.144
+react 2 body_reaction_05 push 0.167 0.318
+react 2 body_reaction_06 push 0.169 -0.321
+react 2 body_reaction_07 push 0.207 0.008
+react 2 body_reaction_08 push -0.281 0.045
+death body_death_06 push -0.419 0.069
+death body_death_03 push -0.364 0.038
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 49 33
+monster boar chr boar_reference npc 346000 hp 256 poise 0 scale 0.8158
+parried body_stagger_01
+reference boar_reference
+souls boar 100
+attack gore body_attack_01 judge 100 phys 110 poise 20 level 1 radius 0.40 radius2 0.40 stop 0.00 knock 1.00
+attack-adaptation gore tame source-level 9 source-phys 280 level 1 phys 110 poise 20 knock 1.00 guard-rate 30 blockable
+attack charge body_attack_08 judge 160 phys 100 poise 20 level 1 radius 0.40 radius2 0.40 stop 0.00 knock 0.60
+attack-adaptation charge tame source-level 7 source-phys 190 level 1 phys 100 poise 20 knock 0.60 guard-rate 20 blockable
+react 1 body_reaction_05 push -0.272 -0.662
+react 1 body_reaction_06 push -0.073 0.483
+react 1 body_reaction_07 push -0.100 -0.107
+react 1 body_reaction_08 push -0.025 -0.118
+react 2 body_reaction_05 push -0.272 -0.662
+react 2 body_reaction_06 push -0.073 0.483
+react 2 body_reaction_07 push -0.100 -0.107
+react 2 body_reaction_08 push -0.025 -0.118
+death body_death_01 push -0.125 0.706
+death body_death_08 push -1.573 -1.603
+think near 3.0 mid 6.0 far 20.0 out 30.0
+reach 33 21
+monster boar_dog chr wolf_reference npc 334000 hp 84 poise 0 scale 1.1561
+reference boar_dog_reference
+souls boar_dog 80
+attack bite body_attack_01 judge 100 phys 104 poise 20 level 1 radius 0.50 radius2 0.00 stop 0.00 knock 0.45
+attack lunge body_attack_05 judge 130 phys 100 poise 20 level 1 radius 0.50 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.090 -0.240
+react 1 body_reaction_02 push -0.421 -0.476
+react 1 body_reaction_03 push -0.186 -0.150
+react 2 body_reaction_05 push -0.404 -0.380
+react 2 body_reaction_06 push -0.129 0.317
+react 2 body_reaction_07 push -0.571 -0.312
+react 2 body_reaction_08 push -0.377 0.342
+death body_death_06 push -0.205 -0.500
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 33 21
+monster bear chr bear_reference npc 536000 hp 666 poise 45 scale 0.7818
+reference bear_reference
+souls bear 100
+attack bite body_attack_03 judge 120 phys 110 poise 20 level 1 radius 0.60 radius2 0.00 stop 0.00 knock 0.90
+attack-adaptation bite tame source-level 3 source-phys 190 level 1 phys 110 poise 20 knock 0.90 guard-rate 20 blockable
+attack swipe body_attack_06 judge 150 phys 110 poise 20 level 1 radius 0.80 radius2 0.00 stop 0.00 knock 0.90
+attack-adaptation swipe tame source-level 1 source-phys 131 level 1 phys 110 poise 20 knock 0.90 guard-rate 20 blockable
+attack-source swipe chr c3471 weapon 0 variation 34710 scale 0.797639
+attack-reach swipe bones 43 36
+react 1 body_reaction_01 push -0.349 -0.003
+react 1 body_reaction_02 push -0.389 -0.247
+react 1 body_reaction_03 push -0.037 0.175
+react 2 body_reaction_05 push 0.017 0.162
+react 2 body_reaction_06 push 0.013 0.137
+react 2 body_reaction_07 push -0.123 0.000
+react 2 body_reaction_08 push -0.116 0.113
+death body_death_01 push -0.440 0.208
+death body_death_10 push -0.191 -0.060
+think near 2.0 mid 4.0 far 10.0 out 20.0
+reach 45 38
+monster bear_dog chr wolf_reference npc 334000 hp 84 poise 0 scale 1.5734
+reference bear_dog_reference
+souls bear_dog 80
+attack bite body_attack_01 judge 100 phys 104 poise 20 level 1 radius 0.50 radius2 0.00 stop 0.00 knock 0.45
+attack lunge body_attack_05 judge 130 phys 100 poise 20 level 1 radius 0.50 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.123 -0.326
+react 1 body_reaction_02 push -0.574 -0.647
+react 1 body_reaction_03 push -0.253 -0.204
+react 2 body_reaction_05 push -0.550 -0.517
+react 2 body_reaction_06 push -0.176 0.432
+react 2 body_reaction_07 push -0.778 -0.425
+react 2 body_reaction_08 push -0.513 0.465
+death body_death_06 push -0.279 -0.680
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 45 38
+monster caster chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1452
+parried body_stagger_01
+reference caster_reference
+souls caster 100
+attack bolt polearm_light_1 judge 200 phys 130 poise 20 level 1 radius 0.10 radius2 0.00 stop 0.00 knock 0.60
+attack-adaptation bolt tame source-level 1 source-phys 0 level 1 phys 130 poise 20 knock 0.60 guard-rate 30 blockable
+attack-source bolt chr human_reference weapon 0 variation 0 scale 1.134734
+attack-bullet bolt speed 4 max 30 accel 0.32 radius 0.1 homing 40 life 1.1
+attack swat body_attack_04 judge 130 phys 150 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.222 0.125
+react 1 body_reaction_02 push -0.212 0.273
+react 1 body_reaction_03 push 0.206 0.115
+react 2 body_reaction_05 push 0.202 0.414
+react 2 body_reaction_06 push 0.202 -0.419
+react 2 body_reaction_07 push 0.262 0.014
+react 2 body_reaction_08 push -0.365 0.064
+death body_death_05 push -0.789 -0.111
+death body_death_01 push 0.314 0.379
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 97 79
+monster caster_female chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1725
+parried body_stagger_01
+reference caster_female_reference
+souls caster_female 100
+attack bolt polearm_light_1 judge 200 phys 130 poise 20 level 1 radius 0.10 radius2 0.00 stop 0.00 knock 0.60
+attack-adaptation bolt tame source-level 1 source-phys 0 level 1 phys 130 poise 20 knock 0.60 guard-rate 30 blockable
+attack-source bolt chr human_reference weapon 0 variation 0 scale 1.161737
+attack-bullet bolt speed 4 max 30 accel 0.32 radius 0.1 homing 40 life 1.1
+attack swat body_attack_04 judge 130 phys 150 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.228 0.128
+react 1 body_reaction_02 push -0.217 0.279
+react 1 body_reaction_03 push 0.211 0.117
+react 2 body_reaction_05 push 0.207 0.424
+react 2 body_reaction_06 push 0.207 -0.428
+react 2 body_reaction_07 push 0.269 0.014
+react 2 body_reaction_08 push -0.373 0.066
+death body_death_05 push -0.808 -0.113
+death body_death_01 push 0.321 0.388
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 96 78
+monster geomancer chr kobold_reference npc 206000 hp 203 poise 0 scale 0.6165
+parried body_stagger_01
+reference geomancer_reference
+souls geomancer 100
+attack bolt polearm_light_1 judge 200 phys 120 poise 20 level 1 radius 0.10 radius2 0.00 stop 0.00 knock 0.60
+attack-adaptation bolt tame source-level 1 source-phys 0 level 1 phys 120 poise 20 knock 0.60 guard-rate 30 blockable
+attack-source bolt chr human_reference weapon 0 variation 0 scale 0.728151
+attack-bullet bolt speed 4 max 30 accel 0.32 radius 0.1 homing 40 life 1.1
+attack small_1 body_attack_01 judge 100 phys 138 poise 10 level 1 radius 0.30 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.244 0.058
+react 1 body_reaction_02 push -0.140 0.141
+react 1 body_reaction_05 push 0.196 0.196
+react 1 body_reaction_06 push 0.202 -0.159
+react 1 body_reaction_07 push 0.207 0.006
+react 2 body_reaction_08 push -0.342 -0.030
+react 2 body_reaction_05 push 0.196 0.196
+react 2 body_reaction_06 push 0.202 -0.159
+react 2 body_reaction_07 push 0.207 0.006
+death body_death_03 push -0.602 0.101
+death body_death_05 push 0.216 0.254
+think near 2.0 mid 5.0 far 10.0 out 20.0
+reach 53 45
+monster ambusher chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.0357
+parried body_stagger_01
+reference ambusher_reference
+souls ambusher 100
+attack slash_1 body_attack_04 judge 130 phys 150 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack slash_2 body_attack_05 judge 140 phys 153 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.201 0.113
+react 1 body_reaction_02 push -0.192 0.247
+react 1 body_reaction_03 push 0.187 0.104
+react 2 body_reaction_05 push 0.183 0.374
+react 2 body_reaction_06 push 0.182 -0.379
+react 2 body_reaction_07 push 0.237 0.012
+react 2 body_reaction_08 push -0.330 0.058
+death body_death_05 push -0.714 -0.100
+death body_death_01 push 0.284 0.342
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 48 37
+monster goblin chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 0.5428
+parried body_stagger_01
+reference goblin_reference
+souls goblin 100
+attack slash_1 body_attack_04 judge 130 phys 150 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack slash_2 body_attack_05 judge 140 phys 153 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.105 0.059
+react 1 body_reaction_02 push -0.101 0.129
+react 1 body_reaction_03 push 0.098 0.054
+react 2 body_reaction_05 push 0.096 0.196
+react 2 body_reaction_06 push 0.096 -0.198
+react 2 body_reaction_07 push 0.124 0.007
+react 2 body_reaction_08 push -0.173 0.030
+death body_death_05 push -0.374 -0.052
+death body_death_01 push 0.149 0.179
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 83 68
+monster minespider chr spider_reference npc 340000 hp 93 poise 0 scale 2.7999
+reference minespider_reference
+souls minespider 100
+attack bite body_attack_01 judge 100 phys 132 poise 20 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack leap body_attack_02 judge 110 phys 134 poise 20 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack hop_back body_attack_501 judge 110 phys 134 poise 20 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.278 0.406
+react 1 body_reaction_02 push -0.165 -0.558
+react 1 body_reaction_03 push -0.193 -0.669
+react 2 body_reaction_05 push -0.250 -0.972
+react 2 body_reaction_06 push -0.203 0.735
+react 2 body_reaction_07 push -0.231 -0.238
+react 2 body_reaction_08 push -0.237 0.142
+death body_death_01 push -1.413 -0.323
+death body_death_03 push -1.497 0.287
+think near 2.0 mid 5.0 far 10.0 out 20.0
+reach 35 47
+monster tarantula chr spider_reference npc 340000 hp 93 poise 0 scale 1.8043
+reference tarantula_reference
+souls tarantula 100
+attack bite body_attack_01 judge 100 phys 132 poise 20 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack spit body_attack_07 judge 100 phys 132 poise 20 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack-bullet spit speed 6 max 16 accel 0.3 radius 0.25 homing 15 life 1.4
+attack hop_back body_attack_501 judge 110 phys 134 poise 20 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.179 0.262
+react 1 body_reaction_02 push -0.107 -0.359
+react 1 body_reaction_03 push -0.124 -0.431
+react 2 body_reaction_05 push -0.161 -0.627
+react 2 body_reaction_06 push -0.131 0.474
+react 2 body_reaction_07 push -0.149 -0.153
+react 2 body_reaction_08 push -0.153 0.091
+death body_death_01 push -0.910 -0.208
+death body_death_03 push -0.965 0.185
+think near 2.0 mid 5.0 far 10.0 out 20.0
+reach 34 5
+monster goldtooth chr kobold_reference npc 206000 hp 203 poise 0 scale 0.6165
+parried body_stagger_01
+reference goldtooth_reference
+souls goldtooth 150
+attack small_1 body_attack_01 judge 100 phys 138 poise 10 level 1 radius 0.30 radius2 0.00 stop 0.00 knock 0.45
+attack small_2 body_attack_02 judge 110 phys 142 poise 10 level 1 radius 0.30 radius2 0.00 stop 0.00 knock 0.45
+attack run_strike body_attack_04 judge 130 phys 186 poise 20 level 2 radius 0.40 radius2 0.00 stop 0.00 knock 1.00
+attack pounce body_attack_07 judge 160 phys 124 poise 20 level 1 radius 0.60 radius2 0.60 stop 0.00 knock 1.00
+react 1 body_reaction_01 push -0.244 0.058
+react 1 body_reaction_02 push -0.140 0.141
+react 1 body_reaction_05 push 0.196 0.196
+react 1 body_reaction_06 push 0.202 -0.159
+react 1 body_reaction_07 push 0.207 0.006
+react 2 body_reaction_08 push -0.342 -0.030
+react 2 body_reaction_05 push 0.196 0.196
+react 2 body_reaction_06 push 0.202 -0.159
+react 2 body_reaction_07 push 0.207 0.006
+death body_death_03 push -0.602 0.101
+death body_death_05 push 0.216 0.254
+think near 2.0 mid 5.0 far 10.0 out 20.0
+reach 53 45
+monster ruklar chr kobold_reference npc 206000 hp 203 poise 0 scale 0.6165
+parried body_stagger_01
+reference ruklar_reference
+souls ruklar 150
+attack big body_attack_03 judge 120 phys 195 poise 20 level 2 radius 0.30 radius2 0.00 stop 0.00 knock 1.00
+attack small_1 body_attack_01 judge 100 phys 138 poise 10 level 1 radius 0.30 radius2 0.00 stop 0.00 knock 0.45
+attack small_2 body_attack_02 judge 110 phys 142 poise 10 level 1 radius 0.30 radius2 0.00 stop 0.00 knock 0.45
+attack body_check body_attack_05 judge 140 phys 150 poise 30 level 2 radius 0.20 radius2 0.20 stop 0.00 knock 1.37
+attack-adaptation body_check tame source-level 5 source-phys 106 level 2 phys 150 poise 30 knock 1.37 guard-rate 100 blockable
+react 1 body_reaction_01 push -0.244 0.058
+react 1 body_reaction_02 push -0.140 0.141
+react 1 body_reaction_05 push 0.196 0.196
+react 1 body_reaction_06 push 0.202 -0.159
+react 1 body_reaction_07 push 0.207 0.006
+react 2 body_reaction_08 push -0.342 -0.030
+react 2 body_reaction_05 push 0.196 0.196
+react 2 body_reaction_06 push 0.202 -0.159
+react 2 body_reaction_07 push 0.207 0.006
+death body_death_03 push -0.602 0.101
+death body_death_05 push 0.216 0.254
+think near 2.0 mid 5.0 far 10.0 out 20.0
+reach 53 45
+monster narg chr kobold_reference npc 206000 hp 203 poise 0 scale 0.6165
+parried body_stagger_01
+reference narg_reference
+souls narg 150
+attack small_1 body_attack_01 judge 100 phys 138 poise 10 level 1 radius 0.30 radius2 0.00 stop 0.00 knock 0.45
+attack small_2 body_attack_02 judge 110 phys 142 poise 10 level 1 radius 0.30 radius2 0.00 stop 0.00 knock 0.45
+attack body_check body_attack_05 judge 140 phys 150 poise 30 level 2 radius 0.20 radius2 0.20 stop 0.00 knock 1.37
+attack-adaptation body_check tame source-level 5 source-phys 106 level 2 phys 150 poise 30 knock 1.37 guard-rate 100 blockable
+attack big body_attack_03 judge 120 phys 195 poise 20 level 2 radius 0.30 radius2 0.00 stop 0.00 knock 1.00
+react 1 body_reaction_01 push -0.244 0.058
+react 1 body_reaction_02 push -0.140 0.141
+react 1 body_reaction_05 push 0.196 0.196
+react 1 body_reaction_06 push 0.202 -0.159
+react 1 body_reaction_07 push 0.207 0.006
+react 2 body_reaction_08 push -0.342 -0.030
+react 2 body_reaction_05 push 0.196 0.196
+react 2 body_reaction_06 push 0.202 -0.159
+react 2 body_reaction_07 push 0.207 0.006
+death body_death_03 push -0.602 0.101
+death body_death_05 push 0.216 0.254
+think near 2.0 mid 5.0 far 10.0 out 20.0
+reach 53 45
+monster gruff chr murloc_reference npc 255000 hp 85 poise 0 scale 0.9054
+parried body_stagger_01
+reference gruff_reference
+souls gruff 100
+attack swing_1 body_attack_01 judge 100 phys 165 poise 20 level 1 radius 0.20 radius2 0.00 stop 0.00 knock 0.45
+attack swing_2 body_attack_05 judge 140 phys 164 poise 20 level 1 radius 0.20 radius2 0.00 stop 0.00 knock 0.45
+attack triple body_attack_08 judge 170 phys 160 poise 20 level 1 radius 0.20 radius2 0.00 stop 0.00 knock 0.45
+attack heavy_lunge body_attack_06 judge 150 phys 210 poise 30 level 2 radius 0.20 radius2 0.00 stop 0.00 knock 1.00
+attack heavy body_attack_09 judge 180 phys 212 poise 30 level 2 radius 0.20 radius2 0.00 stop 0.00 knock 1.00
+react 1 body_reaction_01 push 0.227 -0.010
+react 1 body_reaction_02 push -0.347 -0.081
+react 1 body_reaction_03 push -0.138 0.168
+react 2 body_reaction_05 push 0.194 0.371
+react 2 body_reaction_06 push 0.197 -0.374
+react 2 body_reaction_07 push 0.241 0.009
+react 2 body_reaction_08 push -0.327 0.052
+death body_death_06 push -0.489 0.080
+death body_death_03 push -0.425 0.045
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 41 32
+monster thuros chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1452
+parried body_stagger_01
+reference thuros_reference
+souls thuros 100
+attack slash_1 body_attack_04 judge 130 phys 150 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack slash_2 body_attack_05 judge 140 phys 153 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack lunge body_attack_06 judge 150 phys 146 poise 20 level 2 radius 0.40 radius2 0.00 stop 0.00 knock 1.00
+attack cut_1 body_attack_01 judge 100 phys 110 poise 10 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.30
+attack-adaptation cut_1 tame source-level 8 source-phys 100 level 1 phys 110 poise 10 knock 0.30 guard-rate 20 blockable
+attack cut_2 body_attack_02 judge 110 phys 110 poise 10 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.30
+attack-adaptation cut_2 tame source-level 8 source-phys 102 level 1 phys 110 poise 10 knock 0.30 guard-rate 20 blockable
+react 1 body_reaction_01 push -0.222 0.125
+react 1 body_reaction_02 push -0.212 0.273
+react 1 body_reaction_03 push 0.206 0.115
+react 2 body_reaction_05 push 0.202 0.414
+react 2 body_reaction_06 push 0.202 -0.419
+react 2 body_reaction_07 push 0.262 0.014
+react 2 body_reaction_08 push -0.365 0.064
+death body_death_05 push -0.789 -0.111
+death body_death_01 push 0.314 0.379
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 97 79
+monster morgaine chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1725
+parried body_stagger_01
+reference morgaine_reference
+souls morgaine 100
+attack slash_1 body_attack_04 judge 130 phys 150 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack slash_2 body_attack_05 judge 140 phys 153 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack cut_1 body_attack_01 judge 100 phys 110 poise 10 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.30
+attack-adaptation cut_1 tame source-level 8 source-phys 100 level 1 phys 110 poise 10 knock 0.30 guard-rate 20 blockable
+attack cut_2 body_attack_02 judge 110 phys 110 poise 10 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.30
+attack-adaptation cut_2 tame source-level 8 source-phys 102 level 1 phys 110 poise 10 knock 0.30 guard-rate 20 blockable
+react 1 body_reaction_01 push -0.228 0.128
+react 1 body_reaction_02 push -0.217 0.279
+react 1 body_reaction_03 push 0.211 0.117
+react 2 body_reaction_05 push 0.207 0.424
+react 2 body_reaction_06 push 0.207 -0.428
+react 2 body_reaction_07 push 0.269 0.014
+react 2 body_reaction_08 push -0.373 0.066
+death body_death_05 push -0.808 -0.113
+death body_death_01 push 0.321 0.388
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 96 78
+monster morgan chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1452
+parried body_stagger_01
+reference morgan_reference
+souls morgan 100
+attack slash_1 body_attack_04 judge 130 phys 150 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack slash_2 body_attack_05 judge 140 phys 153 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack lunge body_attack_06 judge 150 phys 146 poise 20 level 2 radius 0.40 radius2 0.00 stop 0.00 knock 1.00
+attack hop_back body_attack_501 judge 150 phys 146 poise 20 level 2 radius 0.40 radius2 0.00 stop 0.00 knock 1.00
+react 1 body_reaction_01 push -0.222 0.125
+react 1 body_reaction_02 push -0.212 0.273
+react 1 body_reaction_03 push 0.206 0.115
+react 2 body_reaction_05 push 0.202 0.414
+react 2 body_reaction_06 push 0.202 -0.419
+react 2 body_reaction_07 push 0.262 0.014
+react 2 body_reaction_08 push -0.365 0.064
+death body_death_05 push -0.789 -0.111
+death body_death_01 push 0.314 0.379
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 97 79
+monster dead_tooth_jack chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1452
+parried body_stagger_01
+reference dead_tooth_jack_reference
+souls dead_tooth_jack 100
+attack r1_1 axe_light_1 judge 0 phys 95 poise 35 level 2 radius 0.35 radius2 0.20 stop 0.08 knock 0.90
+attack-source r1_1 chr human_reference weapon 701000 variation 3000 scale 1.134734
+attack-grip r1_1 hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+attack r1_2 axe_light_2 judge 10 phys 95 poise 35 level 2 radius 0.35 radius2 0.20 stop 0.08 knock 0.65
+attack-source r1_2 chr human_reference weapon 701000 variation 3000 scale 1.134734
+attack-grip r1_2 hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+attack r1_3 axe_light_3 judge 10 phys 95 poise 35 level 2 radius 0.35 radius2 0.20 stop 0.08 knock 0.65
+attack-source r1_3 chr human_reference weapon 701000 variation 3000 scale 1.134734
+attack-grip r1_3 hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+attack kick weapon_30_attack_101 judge 410 phys 44 poise 10 level 1 radius 0.50 radius2 0.00 stop 0.00 knock 0.45
+attack-source kick chr human_reference weapon 701000 variation 3000 scale 1.134734
+attack-reach kick bones 70 81
+attack-adaptation kick snap-kick source-level 5 source-mult 0 source-guard-rate 60 level 1 phys 44 poise 10 knock 0.45 guard-rate 20 unblockable 0
+attack roll_attack axe_rolling_attack judge 540 phys 86 poise 35 level 2 radius 0.35 radius2 0.10 stop 0.08 knock 1.15
+attack-source roll_attack chr human_reference weapon 701000 variation 3000 scale 1.134734
+attack-grip roll_attack hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+react 1 body_reaction_01 push -0.222 0.125
+react 1 body_reaction_02 push -0.212 0.273
+react 1 body_reaction_03 push 0.206 0.115
+react 2 body_reaction_05 push 0.202 0.414
+react 2 body_reaction_06 push 0.202 -0.419
+react 2 body_reaction_07 push 0.262 0.014
+react 2 body_reaction_08 push -0.365 0.064
+death body_death_05 push -0.789 -0.111
+death body_death_01 push 0.314 0.379
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 97 79
+monster james_clark chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1452
+parried body_stagger_01
+reference james_clark_reference
+souls james_clark 100
+attack r1_1 straight_sword_light_1 judge 0 phys 80 poise 20 level 1 radius 0.40 radius2 0.20 stop 0.08 knock 0.72
+attack-source r1_1 chr human_reference weapon 201000 variation 2300 scale 1.134734
+attack-grip r1_1 hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+attack r1_2 straight_sword_light_2 judge 10 phys 80 poise 20 level 1 radius 0.40 radius2 0.20 stop 0.08 knock 0.84
+attack-source r1_2 chr human_reference weapon 201000 variation 2300 scale 1.134734
+attack-grip r1_2 hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+attack thrust straight_sword_heavy_1 judge 100 phys 108 poise 24 level 2 radius 0.30 radius2 0.10 stop 0.08 knock 0.95
+attack-source thrust chr human_reference weapon 201000 variation 2300 scale 1.134734
+attack-grip thrust hand 97 weapon 56 axis -0.377166 -0.208521 -0.902367 blade 0.000000 1.000000 0.000000
+attack kick straight_sword_followup judge 410 phys 44 poise 10 level 1 radius 0.50 radius2 0.00 stop 0.00 knock 0.45
+attack-source kick chr human_reference weapon 201000 variation 2300 scale 1.134734
+attack-reach kick bones 70 81
+attack-adaptation kick snap-kick source-level 5 source-mult 0 source-guard-rate 70 level 1 phys 44 poise 10 knock 0.45 guard-rate 20 unblockable 0
+attack roll_attack straight_sword_rolling_attack judge 540 phys 72 poise 20 level 1 radius 0.35 radius2 0.20 stop 0.08 knock 0.80
+attack-source roll_attack chr human_reference weapon 201000 variation 2300 scale 1.134734
+attack-grip roll_attack hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+react 1 body_reaction_01 push -0.222 0.125
+react 1 body_reaction_02 push -0.212 0.273
+react 1 body_reaction_03 push 0.206 0.115
+react 2 body_reaction_05 push 0.202 0.414
+react 2 body_reaction_06 push 0.202 -0.419
+react 2 body_reaction_07 push 0.262 0.014
+react 2 body_reaction_08 push -0.365 0.064
+death body_death_05 push -0.789 -0.111
+death body_death_01 push 0.314 0.379
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 97 79
+monster erlan chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1452
+parried body_stagger_01
+reference erlan_reference
+souls erlan 100
+attack axe_1 axe_2h_light_1 judge 200 phys 114 poise 53 level 2 radius 0.35 radius2 0.20 stop 0.08 knock 0.90
+attack-source axe_1 chr human_reference weapon 701000 variation 3000 scale 1.134734
+attack-grip axe_1 hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+attack axe_2 axe_2h_light_2 judge 210 phys 114 poise 53 level 2 radius 0.35 radius2 0.20 stop 0.08 knock 0.65
+attack-source axe_2 chr human_reference weapon 701000 variation 3000 scale 1.134734
+attack-grip axe_2 hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+attack heavy_1 axe_2h_heavy_1 judge 300 phys 143 poise 60 level 2 radius 0.35 radius2 0.10 stop 0.08 knock 1.00
+attack-adaptation heavy_1 tame source-level 3 source-phys 143 level 2 phys 143 poise 60 knock 1.00 guard-rate 60 blockable
+attack-source heavy_1 chr human_reference weapon 701000 variation 3000 scale 1.134734
+attack-grip heavy_1 hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+attack heavy_2 axe_2h_heavy_2 judge 310 phys 143 poise 60 level 2 radius 0.35 radius2 0.20 stop 0.08 knock 1.00
+attack-adaptation heavy_2 tame source-level 3 source-phys 143 level 2 phys 143 poise 60 knock 1.00 guard-rate 60 blockable
+attack-source heavy_2 chr human_reference weapon 701000 variation 3000 scale 1.134734
+attack-grip heavy_2 hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+attack roll_attack axe_2h_rolling_attack judge 580 phys 105 poise 53 level 2 radius 0.35 radius2 0.10 stop 0.08 knock 1.15
+attack-source roll_attack chr human_reference weapon 701000 variation 3000 scale 1.134734
+attack-grip roll_attack hand 97 weapon 56 axis -0.377166 -0.208521 -0.902366 blade 0.000000 1.000000 0.000000
+react 1 body_reaction_01 push -0.222 0.125
+react 1 body_reaction_02 push -0.212 0.273
+react 1 body_reaction_03 push 0.206 0.115
+react 2 body_reaction_05 push 0.202 0.414
+react 2 body_reaction_06 push 0.202 -0.419
+react 2 body_reaction_07 push 0.262 0.014
+react 2 body_reaction_08 push -0.365 0.064
+death body_death_05 push -0.789 -0.111
+death body_death_01 push 0.314 0.379
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 97 79
+monster surena chr defias_duelist_reference npc 252000 hp 115 poise 0 scale 1.1725
+parried body_stagger_01
+reference surena_reference
+souls surena 100
+attack bolt polearm_light_1 judge 200 phys 130 poise 20 level 1 radius 0.10 radius2 0.00 stop 0.00 knock 0.60
+attack-adaptation bolt tame source-level 1 source-phys 0 level 1 phys 130 poise 20 knock 0.60 guard-rate 30 blockable
+attack-source bolt chr human_reference weapon 0 variation 0 scale 1.161737
+attack-bullet bolt speed 4 max 30 accel 0.32 radius 0.1 homing 40 life 1.1
+attack heavy_bolt polearm_light_1 judge 200 phys 130 poise 20 level 1 radius 0.10 radius2 0.00 stop 0.00 knock 0.60
+attack-adaptation heavy_bolt tame source-level 1 source-phys 0 level 1 phys 130 poise 20 knock 0.60 guard-rate 30 blockable
+attack-source heavy_bolt chr human_reference weapon 0 variation 0 scale 1.161737
+attack-bullet heavy_bolt speed 4 max 30 accel 0.32 radius 0.1 homing 40 life 1.1
+attack swat body_attack_04 judge 130 phys 150 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack slash body_attack_05 judge 140 phys 153 poise 15 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push -0.228 0.128
+react 1 body_reaction_02 push -0.217 0.279
+react 1 body_reaction_03 push 0.211 0.117
+react 2 body_reaction_05 push 0.207 0.424
+react 2 body_reaction_06 push 0.207 -0.428
+react 2 body_reaction_07 push 0.269 0.014
+react 2 body_reaction_08 push -0.373 0.066
+death body_death_05 push -0.808 -0.113
+death body_death_01 push 0.321 0.388
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 96 78
+monster princess chr boar_reference npc 346000 hp 256 poise 0 scale 0.8158
+parried body_stagger_01
+reference princess_reference
+souls princess 750
+attack gore body_attack_01 judge 100 phys 130 poise 45 level 2 radius 0.40 radius2 0.40 stop 0.00 knock 1.50
+attack-adaptation gore tame source-level 9 source-phys 280 level 2 phys 130 poise 45 knock 1.50 guard-rate 60 blockable
+attack long_charge body_attack_02 judge 110 phys 120 poise 45 level 2 radius 0.70 radius2 0.00 stop 0.00 knock 1.20
+attack-adaptation long_charge tame source-level 7 source-phys 280 level 2 phys 120 poise 45 knock 1.20 guard-rate 50 blockable
+attack double_gore body_attack_03 judge 120 phys 110 poise 30 level 2 radius 0.40 radius2 0.40 stop 0.00 knock 1.00
+attack-adaptation double_gore tame source-level 7 source-phys 190 level 2 phys 110 poise 30 knock 1.00 guard-rate 40 blockable
+attack charge body_attack_08 judge 160 phys 110 poise 30 level 2 radius 0.40 radius2 0.40 stop 0.00 knock 1.00
+attack-adaptation charge tame source-level 7 source-phys 190 level 2 phys 110 poise 30 knock 1.00 guard-rate 40 blockable
+attack rear body_attack_10 judge 180 phys 130 poise 45 level 2 radius 0.40 radius2 0.40 stop 0.00 knock 1.50
+attack-adaptation rear tame source-level 9 source-phys 280 level 2 phys 130 poise 45 knock 1.50 guard-rate 60 blockable
+react 1 body_reaction_05 push -0.272 -0.662
+react 1 body_reaction_06 push -0.073 0.483
+react 1 body_reaction_07 push -0.100 -0.107
+react 1 body_reaction_08 push -0.025 -0.118
+react 2 body_reaction_05 push -0.272 -0.662
+react 2 body_reaction_06 push -0.073 0.483
+react 2 body_reaction_07 push -0.100 -0.107
+react 2 body_reaction_08 push -0.025 -0.118
+death body_death_01 push -0.125 0.706
+death body_death_08 push -1.573 -1.603
+think near 3.0 mid 6.0 far 20.0 out 30.0
+reach 33 21
+monster mother_fang chr spider_reference npc 340000 hp 93 poise 0 scale 2.7999
+reference mother_fang_reference
+souls mother_fang 100
+attack bite body_attack_01 judge 100 phys 132 poise 20 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack leap body_attack_02 judge 110 phys 134 poise 20 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack hop_back body_attack_501 judge 110 phys 134 poise 20 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack spit body_attack_07 judge 100 phys 132 poise 20 level 1 radius 0.40 radius2 0.00 stop 0.00 knock 0.45
+attack-bullet spit speed 6 max 16 accel 0.3 radius 0.25 homing 15 life 1.4
+react 1 body_reaction_01 push -0.278 0.406
+react 1 body_reaction_02 push -0.165 -0.558
+react 1 body_reaction_03 push -0.193 -0.669
+react 2 body_reaction_05 push -0.250 -0.972
+react 2 body_reaction_06 push -0.203 0.735
+react 2 body_reaction_07 push -0.231 -0.238
+react 2 body_reaction_08 push -0.237 0.142
+death body_death_01 push -1.413 -0.323
+death body_death_03 push -1.497 0.287
+think near 2.0 mid 5.0 far 10.0 out 20.0
+reach 35 47
+monster fedfennel chr murloc_reference npc 255000 hp 85 poise 0 scale 0.9054
+parried body_stagger_01
+reference fedfennel_reference
+souls fedfennel 100
+attack swing_1 body_attack_01 judge 100 phys 165 poise 20 level 1 radius 0.20 radius2 0.00 stop 0.00 knock 0.45
+attack swing_2 body_attack_05 judge 140 phys 164 poise 20 level 1 radius 0.20 radius2 0.00 stop 0.00 knock 0.45
+attack quick body_attack_07 judge 160 phys 174 poise 20 level 1 radius 0.20 radius2 0.00 stop 0.00 knock 0.45
+attack heavy body_attack_09 judge 180 phys 212 poise 30 level 2 radius 0.20 radius2 0.00 stop 0.00 knock 1.00
+attack-adaptation heavy tame source-level 2 source-phys 212 level 2 phys 212 poise 30 knock 1.00 guard-rate 100 blockable
+attack overhead body_attack_03 judge 120 phys 169 poise 20 level 1 radius 0.20 radius2 0.00 stop 0.00 knock 0.45
+react 1 body_reaction_01 push 0.227 -0.010
+react 1 body_reaction_02 push -0.347 -0.081
+react 1 body_reaction_03 push -0.138 0.168
+react 2 body_reaction_05 push 0.194 0.371
+react 2 body_reaction_06 push 0.197 -0.374
+react 2 body_reaction_07 push 0.241 0.009
+react 2 body_reaction_08 push -0.327 0.052
+death body_death_06 push -0.489 0.080
+death body_death_03 push -0.425 0.045
+think near 1.5 mid 3.5 far 10.0 out 20.0
+reach 41 32
+preact s body_reaction_01 push 0.187 -0.144 chain 0.600 evade 0.600 move 0.767 down 0.000 0.000
+preact s body_reaction_02 push 0.181 0.157 chain 0.600 evade 0.600 move 0.767 down 0.000 0.000
+preact s body_reaction_03 push -0.431 0.028 chain 0.600 evade 0.600 move 0.767 down 0.000 0.000
+preact s body_reaction_04 push -0.214 0.019 chain 0.600 evade 0.600 move 0.767 down 0.000 0.000
+preact m body_reaction_05 push 0.215 0.423 chain 1.033 evade 1.067 move 1.067 down 0.000 0.000
+preact m body_reaction_06 push 0.222 -0.431 chain 1.033 evade 1.067 move 1.067 down 0.000 0.000
+preact m body_reaction_07 push 0.279 0.005 chain 1.033 evade 1.067 move 1.067 down 0.000 0.000
+preact m body_reaction_08 push -0.390 0.059 chain 1.033 evade 1.067 move 1.067 down 0.000 0.000
+preact l body_reaction_11 push -0.369 0.110 chain 1.433 evade 1.500 move 1.500 down 0.000 0.000
+preact l body_reaction_12 push -0.330 -0.160 chain 1.433 evade 1.500 move 1.500 down 0.000 0.000
+preact l body_reaction_13 push -0.372 0.131 chain 1.433 evade 1.500 move 1.500 down 0.000 0.000
+preact l body_reaction_14 push -0.586 0.197 chain 1.433 evade 1.500 move 1.500 down 0.000 0.000
+preact down body_reaction_17 push -0.775 0.010 chain 3.567 evade 3.467 move 3.700 down 0.000 3.600
+preact down body_reaction_18 push 0.467 0.186 chain 3.000 evade 2.900 move 3.100 down 0.000 2.900
+preact down2 body_reaction_27 push -0.776 0.011 chain 3.100 evade 3.000 move 3.167 down 0.000 3.100
+preact down2 body_reaction_28 push 0.467 0.186 chain 2.800 evade 2.700 move 2.900 down 0.000 2.800
+pdeath body_reaction_27 push -0.776 0.011 hold 1.133
+pdeath body_reaction_28 push 0.467 0.186 hold 1.400
+max-error-deg 0.136
+max-cross-deg 11.461
+max-foot-gap 0.6181
+max-foot-gap-all 2.2346
+# imported-source 257161 1527186972 c0000_a00_hi.anibnd.dcx
+# imported-source 1509755 1527186972 c0000_a00_lo.anibnd.dcx
+# imported-source 2323464 1527186972 c0000_a00_md.anibnd.dcx
+# imported-source 778083 1527186972 c0000_a0x.anibnd.dcx
+# imported-source 1713982 1527186972 c0000_a1x.anibnd.dcx
+# imported-source 2241659 1527186972 c0000_a2x.anibnd.dcx
+# imported-source 1929705 1527186972 c0000_a3x.anibnd.dcx
+# imported-source 1106895 1527186972 c0000_a4x.anibnd.dcx
+# imported-source 763242 1527186972 c0000_a5x.anibnd.dcx
+# imported-source 474701 1527186972 c0000_a6x.anibnd.dcx
+# imported-source 322376 1527186972 c0000_a7x.anibnd.dcx
+# imported-source 364753 1527186972 c0000_a8x.anibnd.dcx
+# imported-source 1763182 1527186972 c0000_a9x.anibnd.dcx
+# imported-source 913588 1527186972 human_reference.anibnd.dcx
+# imported-source 1133443 1527186972 kobold_reference.anibnd.dcx
+# imported-source 609728 1527186972 wolf_reference.anibnd.dcx
+# imported-source 609728 1527186972 wolf_reference.anibnd.dcx
+# imported-source 988521 1527186972 defias_duelist_reference.anibnd.dcx
+# imported-source 988521 1527186972 defias_duelist_reference.anibnd.dcx
+# imported-source 988521 1527186972 defias_duelist_reference.anibnd.dcx
+# imported-source 988521 1527186972 defias_duelist_reference.anibnd.dcx
+# imported-source 988521 1527186972 defias_duelist_reference.anibnd.dcx
+# imported-source 1078541 1527186972 defias_brawler_reference.anibnd.dcx
+# imported-source 1032844 1527186972 hogger_brute_reference.anibnd.dcx
+# imported-source 1483015 1527186972 hogger_knight_reference.anibnd.dcx
+# imported-source 1193367 1527186972 murloc_reference.anibnd.dcx
+# imported-source 1193367 1527186972 murloc_reference.anibnd.dcx
+# imported-source 408363 1527186972 boar_reference.anibnd.dcx
+# imported-source 609728 1527186972 wolf_reference.anibnd.dcx
+# imported-source 1050854 1527186972 bear_reference.anibnd.dcx
+# imported-source 609728 1527186972 wolf_reference.anibnd.dcx
+# imported-source 988521 1527186972 defias_duelist_reference.anibnd.dcx
+# imported-source 988521 1527186972 defias_duelist_reference.anibnd.dcx
+# imported-source 1133443 1527186972 kobold_reference.anibnd.dcx
+# imported-source 988521 1527186972 defias_duelist_reference.anibnd.dcx
+# imported-source 988521 1527186972 defias_duelist_reference.anibnd.dcx
+# imported-source 1315512 1527186972 spider_reference.anibnd.dcx
+# imported-source 1315512 1527186972 spider_reference.anibnd.dcx
+# imported-source 498489 1527186972 GameParam.parambnd.dcx
+# imported-source 60242 1527186972 paramdef.paramdefbnd.dcx
+defense-version 1
+defense cut 0.500 stability 32 hand 95
+defparry stamina 14 radius 0.550
+defclip raise shield_guard_raise push 0.0000 0.0000
+defclip hold shield_guard_hold push 0.0000 0.0000
+defgrip -0.37717 -0.20852 -0.90237 0.00000 1.00000 0.00000
+defclip lower shield_guard_lower push 0.0000 0.0000
+defclip parry bow_aim_release push 0.0000 0.0000
+defclip break0 body_reaction_81 push 0.2140 -0.4703
+defclip break1 body_reaction_82 push 0.4675 0.2442
+defclip break2 body_reaction_83 push -0.4793 -0.0593
+defclip break3 body_reaction_84 push 0.5360 0.0110
+defattack kobold small_1 rate 20 unblockable 0
+defattack kobold small_2 rate 20 unblockable 0
+defattack kobold big rate 20 unblockable 0
+defattack kobold run_strike rate 40 unblockable 0
+defattack kobold body_check rate 60 unblockable 0
+defattack kobold pounce rate 100 unblockable 1
+defattack wolf bite rate 20 unblockable 0
+defattack wolf lunge rate 20 unblockable 0
+defattack direwolf bite rate 20 unblockable 0
+defattack thug slash_1 rate 40 unblockable 0
+defattack thug slash_2 rate 40 unblockable 0
+defattack thug_female slash_1 rate 40 unblockable 0
+defattack thug_female slash_2 rate 40 unblockable 0
+defattack human_axe_2h axe_1 rate 60 unblockable 0
+defattack human_axe_2h axe_2 rate 60 unblockable 0
+defattack human_bandit sword rate 25 unblockable 0
+defattack human_bandit kick rate 20 unblockable 0
+defattack human_bandit_female sword rate 25 unblockable 0
+defattack human_bandit_female kick rate 20 unblockable 0
+defattack garrick double rate 60 unblockable 0
+defattack garrick triple rate 60 unblockable 0
+defattack garrick lunge rate 100 unblockable 0
+defattack garrick dash rate 100 unblockable 0
+defattack garrick quick rate 20 unblockable 0
+defattack hogger overhead rate 100 unblockable 0
+defattack hogger heavy_swing rate 100 unblockable 0
+defattack hogger step_smash rate 100 unblockable 0
+defattack hogger sweep rate 100 unblockable 0
+defattack hogger lunge_smash rate 100 unblockable 0
+defattack hogger quick rate 100 unblockable 0
+defattack hogger backhand rate 100 unblockable 0
+defattack hogger feint_plunge rate 100 unblockable 1
+defattack hogger charge rate 100 unblockable 0
+defattack hogger hop_back rate 100 unblockable 0
+defattack hogger_knight slash rate 100 unblockable 0
+defattack hogger_knight step_slash rate 100 unblockable 0
+defattack hogger_knight close_two rate 100 unblockable 0
+defattack hogger_knight pounce rate 100 unblockable 0
+defattack hogger_knight lunge rate 100 unblockable 0
+defattack hogger_knight thrust rate 100 unblockable 0
+defattack hogger_knight spin rate 100 unblockable 0
+defattack hogger_knight backflip rate 100 unblockable 0
+defattack hogger_knight head_butt rate 100 unblockable 0
+defattack hogger_knight flip_slam rate 100 unblockable 0
+defattack hogger_knight overhead rate 100 unblockable 0
+defattack hogger_knight frenzy rate 100 unblockable 0
+defattack gnoll swing_1 rate 20 unblockable 0
+defattack gnoll swing_2 rate 20 unblockable 0
+defattack murloc swing_1 rate 20 unblockable 0
+defattack murloc swing_2 rate 20 unblockable 0
+defattack boar gore rate 30 unblockable 0
+defattack boar charge rate 20 unblockable 0
+defattack boar_dog bite rate 20 unblockable 0
+defattack boar_dog lunge rate 20 unblockable 0
+defattack bear bite rate 20 unblockable 0
+defattack bear swipe rate 20 unblockable 0
+defattack bear_dog bite rate 20 unblockable 0
+defattack bear_dog lunge rate 20 unblockable 0
+defattack caster bolt rate 30 unblockable 0
+defattack caster swat rate 40 unblockable 0
+defattack caster_female bolt rate 30 unblockable 0
+defattack caster_female swat rate 40 unblockable 0
+defattack geomancer bolt rate 30 unblockable 0
+defattack geomancer small_1 rate 20 unblockable 0
+defattack ambusher slash_1 rate 40 unblockable 0
+defattack ambusher slash_2 rate 40 unblockable 0
+defattack goblin slash_1 rate 40 unblockable 0
+defattack goblin slash_2 rate 40 unblockable 0
+defattack minespider bite rate 20 unblockable 0
+defattack minespider leap rate 20 unblockable 0
+defattack minespider hop_back rate 20 unblockable 0
+defattack tarantula bite rate 20 unblockable 0
+defattack tarantula leap rate 20 unblockable 0
+defattack tarantula hop_back rate 20 unblockable 0
+defattack goldtooth small_1 rate 20 unblockable 0
+defattack goldtooth small_2 rate 20 unblockable 0
+defattack goldtooth run_strike rate 40 unblockable 0
+defattack goldtooth pounce rate 100 unblockable 1
+defattack ruklar big rate 20 unblockable 0
+defattack ruklar small_1 rate 20 unblockable 0
+defattack ruklar small_2 rate 20 unblockable 0
+defattack ruklar body_check rate 100 unblockable 0
+defattack narg small_1 rate 20 unblockable 0
+defattack narg small_2 rate 20 unblockable 0
+defattack narg body_check rate 100 unblockable 0
+defattack narg big rate 20 unblockable 0
+defattack gruff swing_1 rate 20 unblockable 0
+defattack gruff swing_2 rate 20 unblockable 0
+defattack gruff triple rate 40 unblockable 0
+defattack gruff heavy_lunge rate 40 unblockable 0
+defattack gruff heavy rate 40 unblockable 0
+defattack thuros slash_1 rate 40 unblockable 0
+defattack thuros slash_2 rate 40 unblockable 0
+defattack thuros lunge rate 40 unblockable 0
+defattack thuros cut_1 rate 20 unblockable 0
+defattack thuros cut_2 rate 20 unblockable 0
+defattack morgaine slash_1 rate 40 unblockable 0
+defattack morgaine slash_2 rate 40 unblockable 0
+defattack morgaine cut_1 rate 20 unblockable 0
+defattack morgaine cut_2 rate 20 unblockable 0
+defattack morgan slash_1 rate 40 unblockable 0
+defattack morgan slash_2 rate 40 unblockable 0
+defattack morgan lunge rate 40 unblockable 0
+defattack morgan hop_back rate 40 unblockable 0
+defattack dead_tooth_jack r1_1 rate 30 unblockable 0
+defattack dead_tooth_jack r1_2 rate 30 unblockable 0
+defattack dead_tooth_jack r1_3 rate 30 unblockable 0
+defattack dead_tooth_jack kick rate 20 unblockable 0
+defattack dead_tooth_jack roll_attack rate 30 unblockable 0
+defattack james_clark r1_1 rate 25 unblockable 0
+defattack james_clark r1_2 rate 25 unblockable 0
+defattack james_clark thrust rate 25 unblockable 0
+defattack james_clark kick rate 20 unblockable 0
+defattack james_clark roll_attack rate 25 unblockable 0
+defattack erlan axe_1 rate 60 unblockable 0
+defattack erlan axe_2 rate 60 unblockable 0
+defattack erlan heavy_1 rate 60 unblockable 0
+defattack erlan heavy_2 rate 60 unblockable 0
+defattack erlan roll_attack rate 60 unblockable 0
+defattack surena bolt rate 30 unblockable 0
+defattack surena heavy_bolt rate 30 unblockable 0
+defattack surena swat rate 40 unblockable 0
+defattack surena slash rate 40 unblockable 0
+defattack princess gore rate 60 unblockable 0
+defattack princess long_charge rate 50 unblockable 0
+defattack princess double_gore rate 40 unblockable 0
+defattack princess charge rate 40 unblockable 0
+defattack princess rear rate 60 unblockable 0
+defattack mother_fang bite rate 20 unblockable 0
+defattack mother_fang leap rate 20 unblockable 0
+defattack mother_fang hop_back rate 20 unblockable 0
+defattack fedfennel swing_1 rate 20 unblockable 0
+defattack fedfennel swing_2 rate 20 unblockable 0
+defattack fedfennel quick rate 20 unblockable 0
+defattack fedfennel heavy rate 100 unblockable 0
+defattack fedfennel overhead rate 20 unblockable 0

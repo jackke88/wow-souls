@@ -177,7 +177,7 @@ pub fn spawn_card(commands: &mut Commands, font: &Handle<Font>, parchment: Optio
         ..default()
     };
     let mut panel = commands.spawn((node, Ui::Card));
-    match parchment {
+    match parchment.filter(|_| !crate::hud::theme::enabled()) {
         Some(image) => {
             let mut img = ImageNode::new(image);
             img.image_mode = NodeImageMode::Sliced(TextureSlicer {
@@ -189,6 +189,9 @@ pub fn spawn_card(commands: &mut Commands, font: &Handle<Font>, parchment: Optio
         None => {
             panel.insert(BackgroundColor(Color::srgba(0.05, 0.04, 0.03, 0.92)));
         }
+    }
+    if crate::hud::theme::enabled() {
+        crate::hud::theme::dress(&mut panel);
     }
     let panel = panel.id();
     let head = commands

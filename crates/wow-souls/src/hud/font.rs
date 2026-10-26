@@ -11,6 +11,16 @@ use bevy::prelude::*;
 use super::art::{FontDef, HudArt, Rgba};
 use super::tint;
 
+/// The project's bundled OFL font; UI text needs no operating-system font files.
+pub(crate) fn project_font(fonts: &mut Assets<Font>) -> Handle<Font> {
+    fonts.add(
+        Font::try_from_bytes(
+            include_bytes!("../../assets/fonts/eb-garamond/EBGaramond.ttf").to_vec(),
+        )
+        .expect("bundled OFL EB Garamond is a valid font"),
+    )
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Align {
     #[default]

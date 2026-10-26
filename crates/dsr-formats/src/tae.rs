@@ -12,6 +12,10 @@ pub const CHR_ACTION_FLAG: i32 = 0;
 /// Event type 1, `InvokeAttackBehavior`: an attack's hit window. Its third parameter int is the
 /// behavior judge id, which keys `BehaviorParam_PC`.
 pub const ATTACK_BEHAVIOR: i32 = 1;
+/// Event type 64, `InvokeBulletBehavior`: a magic bullet leaves the hand (a pyromancy or a miracle
+/// clip has one, a sorcery clip does not: its release is the state machine's). Its first parameter
+/// is the behavior judge id.
+pub const BULLET_BEHAVIOR: i32 = 64;
 
 /// One timed event of an animation.
 #[derive(Debug, Clone, PartialEq)]

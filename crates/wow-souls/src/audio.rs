@@ -51,6 +51,8 @@ const INJURY_CHANCE: u32 = 60;
 const SCALE_IMPACT: f32 = 1.0;
 const SCALE_VOICE: f32 = 0.9;
 const SCALE_SWISH: f32 = 0.7;
+/// A boss's roar at its second phase: louder than any bark.
+const SCALE_ROAR: f32 = 1.6;
 /// A sound that could not be loaded is tried again after this many seconds.
 const RETRY_FAILED: f32 = 5.0;
 
@@ -237,17 +239,25 @@ impl Audio {
     /// Plays sound kit `kit` (0 plays nothing) at `at` as heard from `listener`, `scale` on top of
     /// the kit's own volume and the master; `what` names the trigger in the log.
     pub fn play_kit(&mut self, kit: u32, at: Option<(Vec3, Listener)>, scale: f32, what: &str) {
+        self.play_kit_leveled(kit, at, scale, what);
+    }
+
+    /// [`Audio::play_kit`], returning the handle of the sound's loudness: its owner sets it to 0 to cut the
+    /// sound short (a spell's wind-up that is over before the sound is). `None` when nothing plays.
+    pub fn play_kit_leveled(
+        &mut self,
+        kit: u32,
+        at: Option<(Vec3, Listener)>,
+        scale: f32,
+        what: &str,
+    ) -> Option<Level> {
         if kit == 0 {
-            return;
+            return None;
         }
-        let Some(k) = self.tables.kits.get(kit) else {
-            return;
-        };
+        let k = self.tables.kits.get(kit)?;
         let (volume, min, cutoff) = (k.volume, k.min_distance, k.distance_cutoff);
         let roll = self.dice.next_u32();
-        let Some(i) = sfx::pick_variation(&k.files, roll) else {
-            return;
-        };
+        let i = sfx::pick_variation(&k.files, roll)?;
         let path = k.files[i].0.clone();
         let (dist, pan) = match at {
             Some((p, l)) => ((p - l.pos).length(), sfx::pan_of(l.right, p - l.pos)),
@@ -263,11 +273,9 @@ impl Audio {
             if self.trace {
                 info!("audio: {what}: kit {kit} is inaudible (listener {dist:.1} yd away, min {min} cutoff {cutoff})");
             }
-            return;
+            return None;
         };
-        let Some(sound) = self.sound(&path) else {
-            return;
-        };
+        let sound = self.sound(&path)?;
         if self.trace || self.mode == Mode::Null {
             info!(
                 "audio: {what}: kit {kit} {path} (gain {:.2}/{:.2}, {dist:.1} yd, {} frames)",
@@ -276,9 +284,13 @@ impl Audio {
                 sound.len()
             );
         }
+        let level = Level::new(1.0);
         if let Some(out) = &self.out {
-            out.play(Voice::new(sound.frames, g));
+            let mut voice = Voice::new(sound.frames, g);
+            voice.level = Some(level.clone());
+            out.play(voice);
         }
+        Some(level)
     }
 
     /// Plays any sound of the install by its chain path (`Sound\interface\LevelUp.wav`, a quest chime, a
@@ -683,7 +695,7 @@ fn on_foes(
             audio.play_kit(aggro, heard(p), SCALE_VOICE, "aggro bark");
         }
         s.alert = hostile.alert;
-        let kit = roster.as_deref().and_then(|r| r.get(species.0.kit));
+        let kit = roster.as_deref().and_then(|r| r.get(species.kit()));
         match (brain.mind, kit) {
             (Mind::Attack { t, mv }, Some(k)) => {
                 if let Some(a) = k.attacks.get(usize::from(mv)) {
@@ -708,6 +720,70 @@ fn on_foes(
             }
             (Mind::Attack { .. }, None) => {}
             _ => s.swished = 0,
+        }
+    }
+}
+
+/// A boss's roar as it rises into its Frenzy: a beast's, deep (the gnoll has none of its own).
+const ROAR_PATH: &str = "Sound\\Creature\\Bear\\mBearAggroA.wav";
+/// A slam's ground shock or a blast: an Infernal crashing into the ground.
+const SHOCK_PATH: &str = "Sound\\Spells\\InfernalImpactBase.wav";
+/// How loud a shock is at the player's feet and how far off it has faded out (yd).
+const SCALE_SHOCK: f32 = 1.4;
+const SHOCK_HEARD: f32 = 30.0;
+
+/// The thud of a boss's ground shock or blast, hit or miss, quieter the farther off it lands.
+fn on_shock(
+    audio: Option<ResMut<Audio>>,
+    mut landed: MessageReader<crate::shock::Landed>,
+    avatar: Query<&GlobalTransform, With<Avatar>>,
+) {
+    let Some(mut audio) = audio else {
+        landed.clear();
+        return;
+    };
+    let player = avatar.single().ok().map(GlobalTransform::translation);
+    for l in landed.read() {
+        let dist = player.map_or(0.0, |p| p.distance(l.at));
+        let near = (1.0 - dist / SHOCK_HEARD).clamp(0.0, 1.0);
+        if near <= 0.0 {
+            continue;
+        }
+        let scale = SCALE_SHOCK * near * if l.blast { 1.3 } else { 1.0 };
+        audio.play_path(
+            SHOCK_PATH,
+            scale,
+            if l.blast { "boss blast" } else { "boss shock" },
+        );
+    }
+}
+
+/// A boss's second phase: its aggro bark again, loud (the creature's voice row has no roar of its own).
+fn on_roar(
+    audio: Option<ResMut<Audio>>,
+    cams: Query<&GlobalTransform, With<WorldCamera>>,
+    mut roars: MessageReader<crate::boss::Roar>,
+    foes: Query<(&GlobalTransform, &VoiceOf, Option<&crate::boss::Frenzy>)>,
+) {
+    let Some(mut audio) = audio else {
+        roars.clear();
+        return;
+    };
+    let l = listener(&cams);
+    for r in roars.read() {
+        let Ok((at, display, frenzy)) = foes.get(r.from) else {
+            continue;
+        };
+        let aggro = audio.voice(display.0).map_or(0, |v| v.aggro);
+        audio.play_kit(
+            aggro,
+            l.map(|l| (at.translation() + Vec3::Y * 1.2, l)),
+            SCALE_ROAR,
+            "boss roar",
+        );
+        // The beast's roar is the Frenzy's (the Taurus Hogger roars with his bark alone, as before).
+        if frenzy.is_some() {
+            audio.play_path(ROAR_PATH, SCALE_ROAR, "boss roar (beast)");
         }
     }
 }
@@ -792,6 +868,32 @@ fn on_parried(
 }
 
 /// The player's sound levels (the settings, changed in the menu) reach the mixer and the kits.
+fn on_perfect(
+    audio: Option<ResMut<Audio>>,
+    mut events: MessageReader<crate::defense::PerfectDefense>,
+) {
+    let Some(mut audio) = audio else {
+        events.clear();
+        return;
+    };
+    for event in events.read() {
+        let kit = audio
+            .tables
+            .impacts
+            .get(SWORD_1H, true)
+            .map_or(0, |r| r.impact[impact_slot::PARRY_METAL]);
+        audio.play_kit(
+            kit,
+            None,
+            SCALE_IMPACT * 1.15,
+            match event.kind {
+                crate::defense::PerfectKind::Block => "perfect block",
+                crate::defense::PerfectKind::Parry => "perfect parry",
+            },
+        );
+    }
+}
+
 fn sync_levels(
     settings: Res<crate::settings::Settings>,
     audio: Option<ResMut<Audio>>,
@@ -820,6 +922,9 @@ pub fn plugin(app: &mut App) {
                 on_foes,
                 on_player_hurt,
                 on_parried,
+                on_perfect,
+                on_roar,
+                on_shock,
             )
                 .after(crate::controller::PlaySet::Motor)
                 .run_if(in_state(Phase::Playing)),

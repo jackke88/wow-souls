@@ -48,7 +48,7 @@ impl WorldStateFile {
     }
 }
 
-/// The file's name beside the other saves (a replaced character archives it with them).
+/// The file's name beside the other saves (a character's folder holds it with them).
 pub const FILE_NAME: &str = "world-state-v1.txt";
 
 /// `WOWSOULS_WORLD_STATE`, else beside the other saves; `None` for an unattended run with no switch.
@@ -59,8 +59,7 @@ pub fn save_path() -> Option<PathBuf> {
     if crate::run_mode::unattended() {
         return None;
     }
-    let dir = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "saves".into());
-    Some(PathBuf::from(dir).join("WoWSouls").join(FILE_NAME))
+    Some(crate::saves::file(FILE_NAME))
 }
 
 fn save(mut file: ResMut<WorldStateFile>) {

@@ -12,6 +12,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 pub(crate) mod resolve;
+pub mod swim;
 #[cfg(test)]
 pub(crate) mod testkit;
 

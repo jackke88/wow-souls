@@ -21,6 +21,12 @@ pub fn run(build: BuildId) -> AppExit {
     // A dev build finds its install through the `WoW` junction in the project folder; `WOW_DATA`
     // overrides it in either build.
     benilla_formats::set_project_folder(build.project_dir);
+    // A player build has no junction: the client folder they picked once (or pick now).
+    if !crate::install::choose(run_mode::unattended()) && !run_mode::unattended() {
+        crate::install::report_missing();
+        return AppExit::error();
+    }
+    crate::install::animations(run_mode::unattended());
     let mut app = App::new();
     app.insert_resource(build);
 
@@ -37,8 +43,8 @@ pub fn run(build: BuildId) -> AppExit {
             }
         }
         None => eprintln!(
-            "wow-souls: no WoW 1.12.1 install found. Set WOW_DATA to its Data folder, or link it \
-             as `WoW` in the project folder. Looked in {:?}",
+            "wow-souls: no WoW 1.12.1 install found. Start with --choose-wow, set WOW_DATA to its \
+             Data folder, or link it as `WoW` in the project folder. Looked in {:?}",
             benilla_formats::candidates()
         ),
     }
@@ -96,18 +102,28 @@ pub fn run(build: BuildId) -> AppExit {
         .add_plugins(crate::loot::plugin)
         .add_plugins(crate::equip::plugin)
         .add_plugins(crate::gear_effect::plugin)
+        .add_plugins(crate::fx_census::plugin)
+        .add_plugins(crate::decor::plugin)
         .add_plugins(crate::shop::plugin)
         .add_plugins(crate::abilities::plugin)
+        .add_plugins(crate::spells::plugin)
         .add_plugins(crate::quests::plugin)
+        .add_plugins(crate::talents::plugin)
+        .add_plugins(crate::warrior::plugin)
         .add_plugins(crate::level::plugin)
         .add_plugins(crate::foot::plugin)
-        .add_plugins(crate::dsloco::plugin)
+        .add_plugins(crate::puddle::plugin)
+        .add_plugins(crate::locomotion::plugin)
+        .add_plugins(crate::boss::plugin)
+        .add_plugins(crate::lively::plugin)
         .add_plugins(crate::zone::plugin)
         .add_plugins(crate::vocal::plugin)
         .add_plugins(crate::create::plugin)
         .add_plugins(crate::sysmenu::ui::plugin)
+        .add_plugins(crate::cartography::plugin)
         .add_plugins(crate::menu::plugin)
         .add_plugins(crate::bloodstain::plugin)
+        .add_plugins(crate::soulbind::plugin)
         .add_plugins(crate::world_state::plugin)
         .add_plugins(record::plugin)
         .add_plugins((
@@ -121,6 +137,9 @@ pub fn run(build: BuildId) -> AppExit {
             // Its critters and friendly NPCs walking (nothing without the manifest).
             walkers::plugin,
         ))
+        .add_plugins(crate::village::plugin)
+        .add_plugins(crate::breath::plugin)
+        .add_plugins(crate::torch::plugin)
         .add_plugins((
             freecam::plugin,
             avatar::plugin,

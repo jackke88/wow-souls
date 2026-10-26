@@ -1,19 +1,12 @@
-//! The Dark Souls HUD's art: `cache/dsr/hud/manifest.txt` (written by `wow-souls-dsr hud`) and the
-//! PNGs it names. The manifest is parsed into plain data ([`Manifest`], pure and tested); the
-//! [`HudArt`] resource adds the decoded images as Bevy handles. A missing, stale or incomplete
-//! cache is an `Err` that says why, and the game keeps its plain HUD.
-//!
-//! All rectangles are in layout pixels of a 1280 x 720 space (see [`super::LAYOUT_W`]).
+//! Legacy widget data retained for plain-style compatibility and pure layout tests.
+//! There is no source-game HUD loader or external-art file reader.
 
 use std::collections::HashMap;
-use std::path::Path;
 
-use bevy::asset::RenderAssetUsages;
-use bevy::image::{Image, ImageSampler};
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 /// The manifest's version word; the extractor writes the same.
+#[cfg(test)]
 pub const HUD_VERSION: &str = "1";
 
 /// A rectangle in layout pixels.
@@ -39,6 +32,7 @@ impl LRect {
 pub type Rgba = [f32; 4];
 
 /// `0xAARRGGBB` to [`Rgba`].
+#[cfg(test)]
 pub fn argb(c: u32) -> Rgba {
     [
         ((c >> 16) & 0xFF) as f32 / 255.0,
@@ -111,6 +105,7 @@ pub struct Manifest {
 }
 
 /// What the widgets look up; [`Manifest::validate`] checks the cache has all of it.
+#[cfg(test)]
 pub const REQUIRED_SPRITES: &[&str] = &[
     "F20-00/bar_0_hp",
     "F20-00/bar_1_hp",
@@ -135,24 +130,30 @@ pub const REQUIRED_SPRITES: &[&str] = &[
     "F20_LockCursor/lock",
     "F23_YouDied/main_text_youdied",
 ];
+#[cfg(test)]
 pub const REQUIRED_RECTS: &[&str] = &[
     "F20-00/plate_hp",
     "F20-00/plate_sp",
     "F23_YouDied/BG",
     "F23_YouDied/BG_bar",
 ];
+#[cfg(test)]
 pub const REQUIRED_GRADIENTS: &[&str] = &["F23_YouDied/BG_grad00", "F23_YouDied/BG_grad01"];
+#[cfg(test)]
 pub const REQUIRED_TEXTS: &[&str] = &[
     "soul_param/text_param_soul",
     "soul_param/text_param_getsoul",
     "enemy_HP/text_param_name",
     "enemy_HP/text_param_damage",
 ];
+#[cfg(test)]
 pub const REQUIRED_PLACES: &[&str] = &["F20-00/soul_param", "F20-00/F20_LockCursor"];
+#[cfg(test)]
 pub const REQUIRED_DIALOGS: &[&str] = &["enemy_HP", "F20_LockCursor"];
 
 impl Manifest {
     /// `Ok` when every key the widgets look up is present and the font can print digits.
+    #[cfg(test)]
     pub fn validate(&self) -> Result<(), String> {
         fn need<T>(map: &HashMap<String, T>, kind: &str, keys: &[&str]) -> Result<(), String> {
             match keys.iter().find(|k| !map.contains_key(**k)) {
@@ -226,6 +227,7 @@ impl Manifest {
     }
 }
 
+#[cfg(test)]
 fn num(w: &[&str], i: usize, line: &str) -> Result<f32, String> {
     w.get(i)
         .and_then(|s| s.parse::<f32>().ok())
@@ -233,6 +235,7 @@ fn num(w: &[&str], i: usize, line: &str) -> Result<f32, String> {
         .ok_or_else(|| format!("bad HUD manifest line {line:?}"))
 }
 
+#[cfg(test)]
 fn rect(w: &[&str], i: usize, line: &str) -> Result<LRect, String> {
     Ok(LRect {
         l: num(w, i, line)?,
@@ -242,6 +245,7 @@ fn rect(w: &[&str], i: usize, line: &str) -> Result<LRect, String> {
     })
 }
 
+#[cfg(test)]
 fn color(w: &[&str], i: usize, line: &str) -> Result<Rgba, String> {
     w.get(i)
         .and_then(|s| u32::from_str_radix(s, 16).ok())
@@ -249,6 +253,7 @@ fn color(w: &[&str], i: usize, line: &str) -> Result<Rgba, String> {
         .ok_or_else(|| format!("bad HUD manifest line {line:?}"))
 }
 
+#[cfg(test)]
 fn word<'a>(w: &[&'a str], i: usize, line: &str) -> Result<&'a str, String> {
     w.get(i)
         .copied()
@@ -256,6 +261,7 @@ fn word<'a>(w: &[&'a str], i: usize, line: &str) -> Result<&'a str, String> {
 }
 
 /// Parses the manifest text.
+#[cfg(test)]
 pub fn parse(text: &str) -> Result<Manifest, String> {
     let mut lines = text.lines();
     let first = lines.next().unwrap_or_default();
@@ -360,66 +366,6 @@ pub fn parse(text: &str) -> Result<Manifest, String> {
     Ok(m)
 }
 
-/// `Ok` when every `source <len> <mtime> <path>` line still matches its file: the cache was cut
-/// from these exact files.
-pub fn check_sources(text: &str) -> Result<(), String> {
-    for line in text.lines() {
-        let mut w = line.splitn(4, ' ');
-        if let (Some("source"), Some(len), Some(mtime), Some(path)) =
-            (w.next(), w.next(), w.next(), w.next())
-        {
-            let meta = std::fs::metadata(path).map_err(|e| format!("source {path}: {e}"))?;
-            let now = meta
-                .modified()
-                .ok()
-                .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs().to_string());
-            if meta.len().to_string() != len || now.as_deref() != Some(mtime) {
-                return Err(format!("stale: {path} changed since extraction"));
-            }
-        }
-    }
-    Ok(())
-}
-
-/// A PNG file as a Bevy image: 8-bit RGBA, sRGB, linear filtering.
-fn read_png(path: &Path) -> Result<Image, String> {
-    let name = path.display();
-    let file = std::fs::File::open(path).map_err(|e| format!("{name}: {e}"))?;
-    let mut reader = png::Decoder::new(std::io::BufReader::new(file))
-        .read_info()
-        .map_err(|e| format!("{name}: {e}"))?;
-    let mut buf = vec![
-        0u8;
-        reader
-            .output_buffer_size()
-            .ok_or(format!("{name}: too large"))?
-    ];
-    let info = reader
-        .next_frame(&mut buf)
-        .map_err(|e| format!("{name}: {e}"))?;
-    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
-        return Err(format!(
-            "{name}: {:?} {:?}, expected 8-bit RGBA",
-            info.color_type, info.bit_depth
-        ));
-    }
-    buf.truncate(info.buffer_size());
-    let mut image = Image::new(
-        Extent3d {
-            width: info.width,
-            height: info.height,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        buf,
-        TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    image.sampler = ImageSampler::linear();
-    Ok(image)
-}
-
 /// The loaded art: the manifest and a handle per PNG it names. Present only when the cache is
 /// whole; the plain HUD runs without it.
 #[derive(Resource)]
@@ -429,29 +375,6 @@ pub struct HudArt {
 }
 
 impl HudArt {
-    /// Reads `dir` (`cache/dsr/hud`): the manifest, the sources' check, every PNG.
-    pub fn load(dir: &Path, images: &mut Assets<Image>) -> Result<HudArt, String> {
-        let text = std::fs::read_to_string(dir.join("manifest.txt"))
-            .map_err(|e| format!("no HUD manifest in {} ({e})", dir.display()))?;
-        let m = parse(&text)?;
-        check_sources(&text)?;
-        m.validate()?;
-        let mut handles = HashMap::new();
-        let files = m
-            .sprites
-            .values()
-            .filter_map(|s| s.png.clone())
-            .chain(m.font.pages.values().cloned());
-        for file in files {
-            if handles.contains_key(&file) {
-                continue;
-            }
-            let image = read_png(&dir.join(&file))?;
-            handles.insert(file, images.add(image));
-        }
-        Ok(HudArt { m, images: handles })
-    }
-
     /// The handle of a PNG the manifest names (a default handle for an unknown name: nothing
     /// shows, the manifest was validated at load).
     pub fn handle(&self, png: &str) -> Handle<Image> {
@@ -483,7 +406,7 @@ sprite F20-00/icon - 3 1 88 96 ffffffff alpha
 rect F20-00/plate_hp 175 76 907 89 ff0a0a0a
 gradient F23_YouDied/BG_grad00 0 283 1280 327 00000000 00000000 c8000000 c8000000
 text soul_param/text_param_soul 1041 630 1169 658 ff9cb9ca 28
-font DSFont24 58 1024 1024
+font TestGlyphAtlas 58 1024 1024
 page 0 font__DSFont24_0.png
 glyph 48 0 354 1 381 59 3 27 27
 ";
@@ -561,29 +484,5 @@ glyph 48 0 354 1 381 59 3 27 27
         let m = parse(SAMPLE).unwrap();
         let e = m.validate().unwrap_err();
         assert!(e.contains("F20-00/bar_0_hp"), "{e}");
-    }
-
-    #[test]
-    fn sources_are_checked_against_the_disk() {
-        let dir = std::env::temp_dir().join(format!("wow-souls-art-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("src.bin");
-        std::fs::write(&file, b"twelve bytes").unwrap();
-        let mtime = std::fs::metadata(&file)
-            .unwrap()
-            .modified()
-            .unwrap()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let line = |len: u64, mtime: u64| format!("source {len} {mtime} {}\n", file.display());
-        assert!(check_sources(&line(12, mtime)).is_ok());
-        assert!(check_sources(&line(13, mtime))
-            .unwrap_err()
-            .contains("stale"));
-        assert!(check_sources(&line(12, mtime + 1)).is_err());
-        assert!(check_sources("source 1 2 /definitely/not/here").is_err());
-        assert!(check_sources("screen 1 1\n").is_ok());
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -119,7 +119,7 @@ pub fn why_not(book: &QuestBook, log: &QuestLog, p: &Player, quest: u32) -> Opti
     }
     // 12. Breadcrumbs: none of the 28 uses them. 13. Method (disabled quests): all 28 are Method 2.
     // The game's own decision: the quest is offered to this character at all.
-    if !book.playable(quest) {
+    if !book.playable_for(quest, p.class) {
         return Some(Refusal::NotPlayable);
     }
     None

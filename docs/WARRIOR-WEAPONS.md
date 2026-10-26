@@ -3,6 +3,10 @@
 The warrior's weapon subclass selects Souls combat. The installed DSR files are read-only;
 derived HKX/TAE/PARAM data lives under ignored `cache/dsr/weapons-*/`. No game assets are checked in.
 
+These are source-based prototype kits. The standing [source-to-original workflow](SOURCE-TO-ORIGINAL.md)
+requires integration and playtesting first, then verified own replacements and removal of all DSR/ER
+production dependencies before the final release.
+
 `cargo run -j 4 -p dsr-cache -- weapons` rebuilds only these families. The regular `extract`
 command now also builds them. A generation is indexed only after all families pass extraction.
 `weapons-survey` prints the original rows, animation imports and events for inspection.
@@ -109,8 +113,9 @@ weapon's +X axis, leaving the source bone rotations unchanged and creating no me
 
 ## Deliberate adaptations and remaining limits
 
-Only DSR is installed. Staff uses DSR polearm motion as a temporary melee interpretation informed
-by DS2's Santier's Spear. Gun uses DSR crossbow motion as a temporary Souls firearm informed by
+DSR and Elden Ring are now present on the development PC; these implemented weapon kits currently
+use DSR data. Working ER import is a separate verification step. Staff uses DSR polearm motion as a
+temporary melee interpretation informed by DS2's Santier's Spear. Gun uses DSR crossbow motion as a temporary Souls firearm informed by
 Bloodborne's Rifle Spear. **Neither is an original DS2/Bloodborne animation.**
 
 Bow draw/release is composed from two unchanged DSR segments. Crossbow uses its source shot.

@@ -177,8 +177,7 @@ fn save_path() -> PathBuf {
             if crate::run_mode::unattended() {
                 PathBuf::from(format!("cache/loot-check/souls-{}.txt", std::process::id()))
             } else {
-                PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "saves".into()))
-                    .join("WoWSouls/souls-v1.txt")
+                crate::saves::file("souls-v1.txt")
             }
         })
 }

@@ -1,18 +1,30 @@
 //! Souls framed pickup rows and inventory, using installed DS panel art and WoW item icons.
 use super::{Acquired, Data, Owned, Screen, SALVE};
+pub(crate) use crate::hud::theme::{GOLD, IVORY, MUTED};
 use crate::{actor::Catalogs, settle::Phase};
 use bevy::prelude::*;
 use bevy::sprite::{BorderRect, TextureSlicer};
 use bevy::ui::widget::NodeImageMode;
 use std::collections::BTreeMap;
 use wow_world::inventory::Inventory;
-pub(crate) const IVORY: Color = Color::srgb(0.88, 0.85, 0.77);
-pub(crate) const GOLD: Color = Color::srgb(0.49, 0.39, 0.22);
-pub(crate) const MUTED: Color = Color::srgb(0.67, 0.65, 0.58);
 /// A step up and a step down against what is worn (the quest screens' card uses the same two).
 const GREEN: Color = Color::srgb(0.55, 0.85, 0.45);
 const RED: Color = Color::srgb(0.92, 0.45, 0.4);
 const ROWS: usize = 7;
+fn page_rows() -> usize {
+    if crate::hud::theme::enabled() {
+        20
+    } else {
+        ROWS
+    }
+}
+fn page_offset(selected: usize) -> usize {
+    if crate::hud::theme::enabled() {
+        selected / 20 * 20
+    } else {
+        selected.saturating_sub(ROWS - 1)
+    }
+}
 /// Comparison rows the detail panel has room for (a shield compares armor and block, a two-hander adds
 /// what it takes off).
 const COMPARE_LINES: usize = 3;
@@ -101,16 +113,10 @@ pub fn plugin(app: &mut App) {
         );
 }
 fn fonts(mut commands: Commands, mut fonts: ResMut<Assets<Font>>) {
-    let load = |name: &str, fonts: &mut Assets<Font>| {
-        std::fs::read(format!("C:/Windows/Fonts/{name}"))
-            .ok()
-            .and_then(|b| Font::try_from_bytes(b).ok())
-            .map(|f| fonts.add(f))
-            .unwrap_or_default()
-    };
+    let font = crate::hud::font::project_font(&mut fonts);
     commands.insert_resource(Fonts {
-        body: load("georgia.ttf", &mut fonts),
-        title: load("georgia.ttf", &mut fonts),
+        body: font.clone(),
+        title: font,
     });
 }
 fn text(
@@ -130,6 +136,10 @@ fn text(
             ..default()
         },
         TextColor(color),
+        TextShadow {
+            offset: Vec2::new(0.6, 0.8),
+            color: Color::srgba(0.0, 0.0, 0.0, 0.85),
+        },
         ChildOf(parent),
     ));
     if let Some(label) = label {
@@ -157,6 +167,9 @@ pub(crate) fn frame(
     image: &Handle<Image>,
     parent: Option<Entity>,
 ) -> Entity {
+    if crate::hud::theme::enabled() {
+        return crate::hud::theme::panel(commands, node, parent);
+    }
     let mut image = ImageNode::new(image.clone());
     image.image_mode = NodeImageMode::Sliced(TextureSlicer {
         border: BorderRect::all(18.0),
@@ -191,6 +204,11 @@ pub(crate) fn load_icon(assets: &AssetServer, path: &str) -> Handle<Image> {
         |s: &mut benilla_assets::BlpLoaderSettings| s.variant = benilla_assets::BlpVariant::Sprite,
     )
 }
+
+fn item_icon_path<'a>(icon: Option<&'a str>, chain: &benilla_formats::Chain) -> &'a str {
+    icon.filter(|path| chain.contains(&format!("{path}.blp")))
+        .unwrap_or("Interface/Icons/INV_Misc_QuestionMark")
+}
 #[allow(clippy::too_many_arguments)]
 fn spawn(
     mut commands: Commands,
@@ -200,24 +218,24 @@ fn spawn(
     catalogs: Res<Catalogs>,
     hud: Option<Res<crate::hud::art::HudArt>>,
 ) {
-    let fallback = load_icon(&assets, "Interface/Icons/INV_Misc_QuestionMark");
+    let chain = catalogs.chain.lock().unwrap_or_else(|e| e.into_inner());
     let icons = data
         .0
         .items
         .iter()
         .map(|item| {
-            let h = catalogs
+            let icon = catalogs
                 .items
                 .get(item.display)
-                .and_then(|d| d.icon.as_deref())
-                .map_or_else(|| fallback.clone(), |p| load_icon(&assets, p));
-            (item.entry, h)
+                .and_then(|d| d.icon.as_deref());
+            (item.entry, load_icon(&assets, item_icon_path(icon, &chain)))
         })
         .chain(std::iter::once((
             SALVE,
             load_icon(&assets, "Interface/Icons/INV_Potion_49"),
         )))
         .collect();
+    drop(chain);
     commands.insert_resource(Art { icons });
     let leather = hud
         .as_deref()
@@ -253,11 +271,11 @@ fn spawn(
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: percent(26),
-                right: percent(26),
+                left: percent(36),
+                right: percent(36),
                 bottom: percent(24),
                 flex_direction: FlexDirection::Column,
-                row_gap: px(4),
+                row_gap: px(3),
                 ..default()
             },
             Panel::Notice,
@@ -268,24 +286,24 @@ fn spawn(
         let row = frame(
             &mut commands,
             Node {
-                height: px(78),
+                height: px(50),
                 width: percent(100),
-                padding: UiRect::axes(px(18), px(10)),
+                padding: UiRect::axes(px(14), px(6)),
                 align_items: AlignItems::Center,
-                column_gap: px(16),
+                column_gap: px(12),
                 ..default()
             },
             &leather,
             Some(notice),
         );
         commands.entity(row).insert(NoticeRow(index));
-        icon(&mut commands, row, 54.0, Icon::Notice(index));
+        icon(&mut commands, row, 34.0, Icon::Notice(index));
         let name = text(
             &mut commands,
             row,
             "",
             &fonts.body,
-            22.0,
+            17.0,
             IVORY,
             Some(Label::NoticeName(index)),
         );
@@ -299,7 +317,7 @@ fn spawn(
             row,
             "",
             &fonts.body,
-            22.0,
+            17.0,
             IVORY,
             Some(Label::NoticeCount(index)),
         );
@@ -440,7 +458,18 @@ fn spawn(
             ..default()
         },
     );
-    for index in 0..ROWS {
+    if crate::hud::theme::enabled() {
+        commands.entity(list).insert(Node {
+            width: percent(58),
+            display: Display::Grid,
+            grid_template_columns: RepeatedGridTrack::flex(5, 1.0),
+            align_content: AlignContent::Start,
+            row_gap: px(12),
+            column_gap: px(12),
+            ..default()
+        });
+    }
+    for index in 0..page_rows() {
         let row = container(
             &mut commands,
             list,
@@ -461,7 +490,30 @@ fn spawn(
             BackgroundColor(Color::NONE),
             BorderColor::all(Color::srgba(0.36, 0.29, 0.17, 0.55)),
         ));
-        icon(&mut commands, row, 42.0, Icon::Row(index));
+        if crate::hud::theme::enabled() {
+            commands
+                .entity(row)
+                .insert(crate::hud::theme::Surface::Slot(false));
+            commands.entity(row).insert(Node {
+                width: percent(100),
+                height: px(84),
+                padding: UiRect::all(px(6)),
+                border: UiRect::all(px(0.7)),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            });
+        }
+        icon(
+            &mut commands,
+            row,
+            if crate::hud::theme::enabled() {
+                64.0
+            } else {
+                42.0
+            },
+            Icon::Row(index),
+        );
         let copy = container(
             &mut commands,
             row,
@@ -472,6 +524,12 @@ fn spawn(
                 ..default()
             },
         );
+        if crate::hud::theme::enabled() {
+            commands.entity(copy).insert(Node {
+                display: Display::None,
+                ..default()
+            });
+        }
         text(
             &mut commands,
             copy,
@@ -500,6 +558,11 @@ fn spawn(
             Some(Label::RowTrend(index)),
         );
         commands.entity(trend).insert(Node {
+            display: if crate::hud::theme::enabled() {
+                Display::None
+            } else {
+                Display::Flex
+            },
             min_width: px(58),
             margin: UiRect::right(px(6)),
             justify_content: JustifyContent::End,
@@ -518,6 +581,21 @@ fn spawn(
             min_width: px(28),
             ..default()
         });
+        if crate::hud::theme::enabled() {
+            commands.entity(count).insert((
+                TextFont {
+                    font: fonts.body.clone(),
+                    font_size: 13.0,
+                    ..default()
+                },
+                Node {
+                    position_type: PositionType::Absolute,
+                    right: px(7),
+                    bottom: px(3),
+                    ..default()
+                },
+            ));
+        }
     }
     let detail = container(
         &mut commands,
@@ -725,7 +803,7 @@ fn buttons(
         return;
     }
     let ids = ordered(&owned.progress.inventory);
-    let offset = screen.selected.saturating_sub(ROWS - 1);
+    let offset = page_offset(screen.selected);
     for (interaction, control) in &buttons {
         if *interaction == Interaction::Pressed {
             match *control {
@@ -739,6 +817,15 @@ fn buttons(
 }
 /// A gear row's mark against the piece worn in its slot: Better / Worse / Equal, or in red what stops
 /// the wearer ("Level 4" when the level does, else "Not yet"). Nothing for what is not gear.
+/// The colour of item `id`'s name: its WoW quality; ivory for what the item list does not know.
+fn quality_of(data: &Data, id: u32) -> Color {
+    data.0
+        .items
+        .iter()
+        .find(|i| i.entry == id)
+        .map_or(IVORY, |i| crate::equip::quality_color(i.quality))
+}
+
 fn mark(card: &crate::equip::Card) -> Option<(String, Color)> {
     use crate::equip::Trend;
     if let Some(why) = &card.warning {
@@ -774,7 +861,12 @@ fn refresh(
     mut icons: Query<(&Icon, &mut ImageNode, &mut Visibility), (Without<Panel>, Without<Control>)>,
     mut notice_rows: Query<(&NoticeRow, &mut Node), Without<Label>>,
     mut controls: Query<
-        (&Control, &mut BackgroundColor, &mut Visibility),
+        (
+            &Control,
+            &mut BackgroundColor,
+            &mut Visibility,
+            Option<&mut crate::hud::theme::Surface>,
+        ),
         (Without<Panel>, Without<Icon>),
     >,
 ) {
@@ -806,7 +898,7 @@ fn refresh(
     let wearable = selected
         .and_then(|id| data.0.items.iter().find(|i| i.entry == id))
         .is_some_and(|i| !wow_world::equipment::slots_for(i.inventory_type).is_empty());
-    let offset = screen.selected.saturating_sub(ROWS - 1);
+    let offset = page_offset(screen.selected);
     // Gear is held up against what is worn in its slot, as the quest rewards and the shop do.
     let wearer = crate::equip::wearer(game.as_deref());
     let card_of = |id: u32| crate::equip::card(&data.0.items, &owned.progress.gear, wearer, id);
@@ -855,11 +947,11 @@ fn refresh(
                 if !gear.message.is_empty() {
                     gear.message.clone()
                 } else if selected == Some(SALVE) {
-                    "W / S / D-pad: Select    Enter / A: Use    G: Equipment".into()
+                    "Arrows / WASD / D-pad: Select    Enter / A: Use    G: Equipment".into()
                 } else if wearable {
-                    "W / S / D-pad: Select    Enter / A: Equip    G: Equipment".into()
+                    "Arrows / WASD / D-pad: Select    Enter / A: Equip    G: Equipment".into()
                 } else {
-                    "W / S / D-pad: Select    G: Equipment".into()
+                    "Arrows / WASD / D-pad: Select    G: Equipment".into()
                 }
             }
             Label::UseButton => if wearable { "Equip" } else { "Use item" }.into(),
@@ -954,6 +1046,18 @@ fn refresh(
                     _ => MUTED,
                 },
             ),
+            // Item names in WoW's quality colours (grey, white, green, blue, purple).
+            Label::DetailName => Some(selected.map_or(IVORY, |id| quality_of(&data, id))),
+            Label::RowName(row) => Some(
+                ids.get(offset + row)
+                    .map_or(IVORY, |&id| quality_of(&data, id)),
+            ),
+            Label::NoticeName(row) => Some(
+                screen
+                    .notice_items
+                    .get(row)
+                    .map_or(IVORY, |i| quality_of(&data, i.0)),
+            ),
             Label::WornName => selected_card
                 .as_ref()
                 .and_then(|c| c.worn.as_ref())
@@ -1008,9 +1112,12 @@ fn refresh(
             }
         }
     }
-    for (control, mut background, mut visibility) in &mut controls {
+    for (control, mut background, mut visibility, surface) in &mut controls {
         let (visible, focused) = match *control {
-            Control::Row(row) => (offset + row < ids.len(), offset + row == screen.selected),
+            Control::Row(row) => (
+                crate::hud::theme::enabled() || offset + row < ids.len(),
+                offset + row == screen.selected && offset + row < ids.len(),
+            ),
             Control::Use => (selected == Some(SALVE) || wearable, false),
             Control::Close => (true, false),
         };
@@ -1019,11 +1126,17 @@ fn refresh(
         } else {
             Visibility::Hidden
         };
+        if let Some(mut surface) = surface {
+            let skin = crate::hud::theme::Surface::Slot(focused);
+            if *surface != skin {
+                *surface = skin;
+            }
+        }
         if *visibility != v {
             *visibility = v;
         }
         let color = if focused || matches!(control, Control::Use) {
-            Color::srgba(0.46, 0.21, 0.07, 0.65)
+            crate::hud::theme::SELECTED
         } else {
             Color::NONE
         };
@@ -1094,7 +1207,7 @@ mod tests {
             return;
         };
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../cache/world/northshire.txt");
+            .join("../../data/world/northshire.txt");
         let world =
             wow_world::manifest::parse(&std::fs::read_to_string(manifest).unwrap()).unwrap();
         let mut chain = benilla_formats::open_chain(&data).unwrap();
@@ -1106,5 +1219,20 @@ mod tests {
             let bytes = chain.read_file(&format!("{icon}.blp")).unwrap();
             assert!(bytes.starts_with(b"BLP"));
         }
+    }
+
+    #[test]
+    fn an_icon_named_by_the_dbc_but_absent_from_vanilla_uses_the_shipped_question_mark() {
+        let Some(data) = benilla_formats::wow_data() else {
+            return;
+        };
+        let chain = benilla_formats::open_chain(&data).unwrap();
+        let missing = "Interface/Icons/INV_Misc_EmptyFlask_01";
+        assert!(!chain.contains(&format!("{missing}.blp")));
+        let fallback = item_icon_path(Some(missing), &chain);
+        assert!(chain.contains(&format!("{fallback}.blp")));
+        assert_eq!(item_icon_path(None, &chain), fallback);
+        let present = "Interface/Icons/INV_Misc_Candle_01";
+        assert_eq!(item_icon_path(Some(present), &chain), present);
     }
 }

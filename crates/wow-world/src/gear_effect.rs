@@ -13,10 +13,12 @@ pub const ARMOR_PER_LEVEL: f32 = 85.0;
 pub const ARMOR_CAP: f32 = 0.75;
 /// The Worn Shortsword's damage per second ((1 + 3) / 2 over 1.9 s): the starting kit is exactly x1.
 pub const REF_DPS: f32 = 2.0 / 1.9;
-/// How damped the step between weapons is: factor = (dps / REF_DPS) ^ this.
-pub const WEAPON_EXPONENT: f32 = 0.5;
+/// How damped the step between weapons is: factor = (dps / REF_DPS) ^ this. 0.25 since 2026-10-18 (0.35 let a
+/// level-10 two-hander two-shot a rare), 0.35 from 2026-10-17 (was 0.5):
+/// the level-5 Militia Warhammer was x1.57 on top of the two-handed moveset's own weight; it is x1.37 now.
+pub const WEAPON_EXPONENT: f32 = 0.25;
 pub const WEAPON_FACTOR_MIN: f32 = 0.75;
-pub const WEAPON_FACTOR_MAX: f32 = 2.5;
+pub const WEAPON_FACTOR_MAX: f32 = 2.0;
 /// Each point of a shield's block value takes this share off a blocked blow's chip damage ...
 pub const BLOCK_REDUCTION_PER_POINT: f32 = 0.05;
 /// ... up to this share.
@@ -63,6 +65,9 @@ pub struct GearEffect {
     pub melee_factor: f32,
     /// The ranged slot's [`weapon_factor`] (1 with nothing there).
     pub ranged_factor: f32,
+    /// Armor a buff adds while it lasts (the Mage's Frost Armor): not the gear's, so a recompute of the
+    /// gear keeps it.
+    pub buff_armor: u32,
 }
 
 impl Default for GearEffect {
@@ -73,6 +78,7 @@ impl Default for GearEffect {
             block: 0,
             melee_factor: 1.0,
             ranged_factor: 1.0,
+            buff_armor: 0,
         }
     }
 }
@@ -96,6 +102,7 @@ impl GearEffect {
             block: t.block,
             melee_factor: factor(Slot::MainHand),
             ranged_factor: factor(Slot::Ranged),
+            buff_armor: 0,
         }
     }
 
@@ -110,7 +117,7 @@ impl GearEffect {
 
     /// The share armor takes off a blow of `attacker_level`.
     pub fn reduction(&self, attacker_level: u8) -> f32 {
-        armor_reduction(self.armor, attacker_level)
+        armor_reduction(self.armor + self.buff_armor, attacker_level)
     }
 
     /// The damage that gets through: armor always, the shield's block only when the blow was blocked
@@ -182,17 +189,23 @@ mod tests {
         // Militia Dagger 2-4 over 1.5 s = 2.0 dps; Hunting Bow 8-16 over 2.6 s = 4.62 dps.
         assert!(close(
             weapon_factor(&weapon(2224, 2.0, 4.0, 1500)),
-            1.3784,
+            1.1741,
             1.0e-3
         ));
         assert!(close(
             weapon_factor(&weapon(8180, 8.0, 16.0, 2600)),
-            2.0940,
+            1.4471,
             1.0e-3
         ));
-        // Spiked Club 22-34 over 3.1 s = 9.03 dps: capped.
-        assert_eq!(
+        // Spiked Club 22-34 over 3.1 s = 9.03 dps: x1.71 at the 0.25 exponent (2026-10-18), under the cap;
+        // a weapon ten times better than that still meets it.
+        assert!(close(
             weapon_factor(&weapon(4564, 22.0, 34.0, 3100)),
+            1.7114,
+            2.0e-3
+        ));
+        assert_eq!(
+            weapon_factor(&weapon(4565, 220.0, 340.0, 3100)),
             WEAPON_FACTOR_MAX
         );
         // A hopeless weapon is floored, not zeroed.
@@ -216,6 +229,23 @@ mod tests {
     }
 
     #[test]
+    fn a_buff_adds_to_the_armor_the_formula_reads() {
+        let mut fx = GearEffect::default();
+        assert_eq!(fx.reduction(3), 0.0);
+        fx.buff_armor = 30;
+        let want = armor_reduction(30, 3);
+        assert!(close(fx.reduction(3), want, 1.0e-6));
+        assert!(
+            close(want, 30.0 / 685.0, 1.0e-6),
+            "30 / (30 + 400 + 3 x 85) is about 4.4 %: {want}"
+        );
+        // Worn armor and the buff add up.
+        fx.armor = 100;
+        assert!(close(fx.reduction(3), armor_reduction(130, 3), 1.0e-6));
+        assert_eq!(fx.armor, 100, "the buff is not part of the gear's armor");
+    }
+
+    #[test]
     fn taken_applies_armor_always_and_block_only_to_a_blocked_blow() {
         let none = GearEffect::default();
         assert_eq!(none.taken(25.0, 4, false), 25.0);
@@ -226,6 +256,7 @@ mod tests {
             block: 5,
             melee_factor: 1.0,
             ranged_factor: 1.0,
+            buff_armor: 0,
         };
         // 195 / (195 + 400 + 340) = 0.2086 off a level 4 blow.
         assert!(close(
@@ -295,7 +326,7 @@ mod tests {
         gear.set(Slot::Ranged, Some(8180));
         let fx = GearEffect::from_gear(&gear, &items, true);
         assert!(close(fx.melee_factor, 1.0, 1.0e-5));
-        assert!(close(fx.ranged_factor, 2.0940, 1.0e-3));
+        assert!(close(fx.ranged_factor, 1.4471, 1.0e-3));
     }
 
     #[test]
@@ -321,6 +352,7 @@ mod tests {
             block: 3,
             melee_factor: 1.378,
             ranged_factor: 1.0,
+            buff_armor: 0,
         };
         assert_eq!(fx.summary(), "Armor 275 (-30 %)     Block 3     Hits x1.38");
     }

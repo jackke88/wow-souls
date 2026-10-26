@@ -1,6 +1,9 @@
 # Never commit anything from the WoW install: the `WoW` junction, game art, captures.
 /WoW
 /target
+# Build output of the separate workspaces (the animation builder, the vendored engine).
+/crates/*/target/
+/vendor/benilla/target/
 /benilla-config
 /captures
 *.png
@@ -13,10 +16,20 @@
 *.dbc
 *.log
 
-# Anything read or derived from the Dark Souls Remastered install stays local.
+# Extraction scratch files and binary caches; editable animations live in /anim/source.
 /cache
 
 # Recordings and cuts are local captures, not source.
 *.mp4
 *.mov
 *.mkv
+
+# Original engine grading data required by include_bytes!, not Blizzard install files.
+!/crates/wow-souls/src/gfx/data/DBFilesClient/MonkeyZoneGrade.dbc
+!/crates/wow-souls/src/gfx/data/World/LUTs/*.blp
+
+# Animation curves derived from Dark Souls Remastered / Elden Ring stay on the developer's machine:
+# they are FromSoftware's data, so they are never published (docs/SOURCE-TO-ORIGINAL.md). Players build
+# them from their own install (`wow-souls-dsr setup`); the tables beside them are project files.
+/anim/source/**/*.wsanim
+/anim/candidates/

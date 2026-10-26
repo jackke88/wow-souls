@@ -11,7 +11,7 @@
 //! `WOWSOULS_MENU=0` skips the menu (an unattended run never shows it); the saved character is then
 //! used, else a default Human Warrior.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use bevy::input::keyboard::{Key, KeyboardInput};
@@ -25,14 +25,14 @@ use crate::avatar::Avatar;
 use crate::character::{self, check_name, Character, Class, Dials, Race, Sex, NAME_MAX};
 use crate::create::rules::{Rules, Selection};
 use crate::settle::Phase;
+pub(crate) mod roster;
 
-const IVORY: Color = Color::srgb(0.88, 0.85, 0.77);
-const GOLD: Color = Color::srgb(0.92, 0.76, 0.28);
-const MUTED: Color = Color::srgb(0.58, 0.56, 0.5);
+use crate::hud::theme::{GOLD, IVORY, MUTED};
 const WARN: Color = Color::srgb(0.85, 0.42, 0.32);
 
-/// The most rows the title screen has.
-const ROWS: usize = 4;
+/// The most rows the title screen has: every character the list can hold, New character, Options
+/// and Quit.
+const ROWS: usize = crate::saves::MAX_CHARACTERS + 3;
 
 /// The races in the order the left and right keys walk them: the Alliance column, then the Horde's,
 /// each top to bottom, as the buttons are laid out.
@@ -49,8 +49,8 @@ pub fn wanted() -> bool {
 }
 
 /// `WOWSOULS_MENU_SCRIPT=<s>:<press>,...` presses at real second `s` (an unattended check's hands):
-/// `up down left right confirm back backspace create random char:<c> race:<id> sex:<0|1> class:<slot>
-/// dial:<i>:<+1|-1>`.
+/// `up down left right confirm back backspace create delete random char:<c> race:<id> sex:<0|1>
+/// class:<slot> dial:<i>:<+1|-1>`.
 #[derive(Resource, Default)]
 struct Script {
     steps: Vec<(f32, Press)>,
@@ -69,10 +69,13 @@ fn parse_script(s: &str) -> Vec<(f32, Press)> {
                 "left" => Press::Left,
                 "right" => Press::Right,
                 "confirm" => Press::Confirm,
+                "play" => Press::Play,
                 "back" => Press::Back,
                 "backspace" => Press::Backspace,
                 "create" => Press::Create,
+                "delete" => Press::Delete,
                 "random" => Press::Randomize,
+                "name" => Press::NameFocus,
                 other => {
                     if let Some(c) = other.strip_prefix("char:") {
                         Press::Char(c.chars().next()?)
@@ -103,6 +106,8 @@ pub enum Press {
     Left,
     Right,
     Confirm,
+    /// Start the chosen character, regardless of which menu command has keyboard focus.
+    Play,
     Back,
     Backspace,
     Char(char),
@@ -115,8 +120,11 @@ pub enum Press {
     /// A dial's arrow: the dial (0 skin .. 4 facial hair) and the direction.
     Dial(u8, i8),
     Randomize,
+    NameFocus,
     /// The Create button itself (Enter on the Create row is the same).
     Create,
+    /// The Delete key (the pad's West button) on a character of the title's list.
+    Delete,
 }
 
 /// A press the creation screen's buttons send (the screen is [`crate::create::ui`]).
@@ -126,14 +134,35 @@ pub struct MenuPress(pub Press);
 /// What a press decided, beyond moving around the menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
-    /// Play the saved character.
+    /// Play the character this run loaded.
     Enter,
+    /// Play another character: every save is read at start, so the game relaunches on its slot.
+    Switch(u32),
     /// The options pages (the system menu's), over the title.
     Options,
-    /// A first character, made from scratch.
+    /// The first character, made in this run (nobody was saved).
     Create(Character),
-    /// A new character replacing the saved one (its progress goes to a backup folder).
-    Replace(Character),
+    /// A new character beside the saved ones: a slot of its own, the game relaunches on it.
+    Add(Character),
+    /// Put a character's saves in a backup folder (nothing is erased).
+    Delete(u32),
+    Quit,
+}
+
+/// A character of the title's list: its slot number and what the creation menu saved of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotInfo {
+    pub id: u32,
+    pub character: Character,
+}
+
+/// A row of the title's list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MainRow {
+    /// A saved character: an index into [`Menu::slots`].
+    Slot(usize),
+    New,
+    Options,
     Quit,
 }
 
@@ -163,7 +192,10 @@ pub struct Menu {
     pub screen: Screen,
     /// The focused row: of the title's list, or of the creation screen's [`Menu::ring`].
     pub cursor: usize,
-    pub existing: Option<Character>,
+    /// The saved characters, in slot order.
+    pub slots: Vec<SlotInfo>,
+    /// The slot this run loaded: Enter on it plays on, any other is a relaunch.
+    pub active: u32,
     /// The creation screen's selection: race, sex, class, dials, name, facing.
     pub sel: Selection,
     pub rules: Arc<Rules>,
@@ -171,31 +203,36 @@ pub struct Menu {
     default_name: String,
     /// The name is still the pre-filled one: the first letter typed replaces it.
     name_fresh: bool,
-    /// The player has been told a new character replaces the saved one and pressed Create once.
-    confirm_replace: bool,
+    /// The slot whose Delete was pressed once (the second press does it).
+    pending_delete: Option<u32>,
+    last_character: u32,
     /// Randomize's dice.
     rng: u64,
 }
 
 impl Menu {
-    /// A first run (no saved character) opens on the creation screen.
-    pub fn new(existing: Option<Character>, default_name: &str, rules: Arc<Rules>) -> Menu {
+    /// A first run (nobody saved) opens on the creation screen; otherwise the title, on the
+    /// character this run loaded.
+    pub fn new(slots: Vec<SlotInfo>, active: u32, default_name: &str, rules: Arc<Rules>) -> Menu {
         let mut sel = Selection::new(&rules);
         sel.name = default_name.to_string();
+        let cursor = slots.iter().position(|s| s.id == active).unwrap_or(0);
         Menu {
-            screen: if existing.is_some() {
-                Screen::Main
-            } else {
+            screen: if slots.is_empty() {
                 Screen::Create
+            } else {
+                Screen::Main
             },
-            cursor: 0,
-            existing,
+            cursor,
+            slots,
+            active,
             sel,
             rules,
             message: String::new(),
             default_name: default_name.to_string(),
             name_fresh: true,
-            confirm_replace: false,
+            pending_delete: None,
+            last_character: active,
             rng: 0x2545_F491_4F6C_DD1D,
         }
     }
@@ -205,12 +242,47 @@ impl Menu {
         self.rng = seed | 1;
     }
 
-    /// The rows of the title screen.
-    pub fn main_rows(&self) -> Vec<&'static str> {
-        if self.existing.is_some() {
-            vec!["Enter the world", "New character", "Options", "Quit"]
+    /// The rows of the title screen: each saved character, New character (not on a full list),
+    /// Options, Quit. With nobody saved the first row is "Create character".
+    pub fn main_rows(&self) -> Vec<MainRow> {
+        let mut rows: Vec<MainRow> = (0..self.slots.len()).map(MainRow::Slot).collect();
+        if self.slots.len() < crate::saves::MAX_CHARACTERS {
+            rows.push(MainRow::New);
+        }
+        rows.extend([MainRow::Options, MainRow::Quit]);
+        rows
+    }
+
+    /// The words of [`Menu::main_rows`].
+    pub fn main_labels(&self) -> Vec<String> {
+        self.main_rows()
+            .into_iter()
+            .map(|row| match row {
+                MainRow::Slot(i) => self.slots.get(i).map_or_else(String::new, |s| {
+                    format!(
+                        "{}, {} {}",
+                        s.character.name,
+                        s.character.race.name(),
+                        s.character.class.name()
+                    )
+                }),
+                MainRow::New if self.slots.is_empty() => "Create character".to_string(),
+                MainRow::New => "New character".to_string(),
+                MainRow::Options => "Options".to_string(),
+                MainRow::Quit => "Quit".to_string(),
+            })
+            .collect()
+    }
+
+    /// A character taken off the list (its saves are in a backup folder): the cursor stays on the
+    /// list, and with nobody left the creation screen opens as on a first run.
+    pub fn remove_slot(&mut self, id: u32) {
+        self.slots.retain(|s| s.id != id);
+        self.pending_delete = None;
+        if self.slots.is_empty() {
+            self.open_create();
         } else {
-            vec!["Create character", "Options", "Quit"]
+            self.cursor = self.cursor.min(self.rows().saturating_sub(1));
         }
     }
 
@@ -248,26 +320,27 @@ impl Menu {
         self.sel = Selection::new(&self.rules);
         self.sel.name = self.default_name.clone();
         self.name_fresh = true;
-        self.confirm_replace = false;
+        self.pending_delete = None;
     }
 
     fn open_main(&mut self) {
         self.screen = Screen::Main;
-        self.cursor = 0;
+        self.cursor = self
+            .slots
+            .iter()
+            .position(|s| s.id == self.last_character)
+            .unwrap_or(0);
         self.message.clear();
-        self.confirm_replace = false;
+        self.pending_delete = None;
     }
 
     /// One press; `Some` when it decided something outside the menu.
     pub fn press(&mut self, p: Press) -> Option<Outcome> {
-        let creating = matches!(p, Press::Create)
-            || (self.screen == Screen::Create
-                && p == Press::Confirm
-                && self.focus() == Row::Create);
-        if !creating {
-            self.confirm_replace = false;
+        if p != Press::Delete {
+            // Anything but a second Delete takes the warning back.
+            self.pending_delete = None;
         }
-        match p {
+        let result = match p {
             Press::Up => {
                 self.cursor = (self.cursor + self.rows() - 1) % self.rows();
                 self.message.clear();
@@ -282,21 +355,59 @@ impl Menu {
                 Screen::Main => self.press_main(p),
                 Screen::Create => self.press_create(p),
             },
+        };
+        self.remember_character();
+        result
+    }
+
+    fn remember_character(&mut self) {
+        if self.screen == Screen::Main {
+            if let Some(MainRow::Slot(i)) = self.main_rows().get(self.cursor) {
+                if let Some(slot) = self.slots.get(*i) {
+                    self.last_character = slot.id;
+                }
+            }
         }
     }
 
     fn press_main(&mut self, p: Press) -> Option<Outcome> {
-        if p != Press::Confirm {
-            return None;
-        }
-        match self.main_rows().get(self.cursor).copied() {
-            Some("Enter the world") => Some(Outcome::Enter),
-            Some("New character" | "Create character") => {
+        let row = self.main_rows().get(self.cursor).copied();
+        match (p, row) {
+            (Press::Play, _) => self.shown_slot().map(|s| {
+                if s.id == self.active {
+                    Outcome::Enter
+                } else {
+                    Outcome::Switch(s.id)
+                }
+            }),
+            (Press::Confirm, Some(MainRow::Slot(i))) => {
+                let id = self.slots.get(i)?.id;
+                Some(if id == self.active {
+                    Outcome::Enter
+                } else {
+                    Outcome::Switch(id)
+                })
+            }
+            (Press::Confirm, Some(MainRow::New)) => {
                 self.open_create();
                 None
             }
-            Some("Options") => Some(Outcome::Options),
-            Some("Quit") => Some(Outcome::Quit),
+            (Press::Confirm, Some(MainRow::Options)) => Some(Outcome::Options),
+            (Press::Confirm, Some(MainRow::Quit)) => Some(Outcome::Quit),
+            (Press::Delete, Some(MainRow::Slot(i))) => {
+                let slot = self.slots.get(i)?;
+                let (id, name) = (slot.id, slot.character.name.clone());
+                if self.pending_delete == Some(id) {
+                    self.pending_delete = None;
+                    return Some(Outcome::Delete(id));
+                }
+                self.pending_delete = Some(id);
+                self.message = format!(
+                    "Delete {name}? The progress goes to a backup folder, nothing is erased. \
+                     Press Delete again."
+                );
+                None
+            }
             _ => None,
         }
     }
@@ -345,6 +456,11 @@ impl Menu {
                 // Letters go to the name wherever the focus is, as in the original (its box is always
                 // the one with the keyboard); the first one replaces the pre-filled name.
                 if c.is_ascii_alphabetic() {
+                    self.cursor = self
+                        .ring()
+                        .iter()
+                        .position(|r| *r == Row::Name)
+                        .unwrap_or(0);
                     if self.name_fresh {
                         self.sel.name.clear();
                         self.name_fresh = false;
@@ -357,6 +473,11 @@ impl Menu {
                 None
             }
             Press::Backspace => {
+                self.cursor = self
+                    .ring()
+                    .iter()
+                    .position(|r| *r == Row::Name)
+                    .unwrap_or(0);
                 if self.name_fresh {
                     self.sel.name.clear();
                     self.name_fresh = false;
@@ -367,6 +488,14 @@ impl Menu {
                 None
             }
             Press::Create => self.make(),
+            Press::NameFocus => {
+                self.cursor = self
+                    .ring()
+                    .iter()
+                    .position(|r| *r == Row::Name)
+                    .unwrap_or(0);
+                None
+            }
             Press::Confirm => match self.focus() {
                 Row::Race | Row::Class | Row::Sex | Row::Dial(_) => {
                     self.step(1);
@@ -388,7 +517,7 @@ impl Menu {
                     None
                 }
             },
-            Press::Up | Press::Down => None,
+            Press::Up | Press::Down | Press::Delete | Press::Play => None,
         }
     }
 
@@ -444,30 +573,40 @@ impl Menu {
         };
         let Some(c) = self.character(name).filter(Character::playable) else {
             self.message =
-                "Only a male Human Warrior can be made yet; the others are coming.".into();
+                "Choose a male Human Warrior or Mage. Other characters are not available yet."
+                    .into();
             return None;
         };
-        match &self.existing {
-            None => Some(Outcome::Create(c)),
-            Some(_) if self.confirm_replace => Some(Outcome::Replace(c)),
-            Some(old) => {
-                self.confirm_replace = true;
-                self.message = format!(
-                    "This replaces {}: the old progress goes to a backup folder and the game \
-                     restarts. Press Create again to confirm.",
-                    old.name
-                );
-                None
-            }
+        if self.slots.is_empty() {
+            Some(Outcome::Create(c))
+        } else if self.slots.len() >= crate::saves::MAX_CHARACTERS {
+            self.message = format!(
+                "The list holds {} characters: delete one first.",
+                crate::saves::MAX_CHARACTERS
+            );
+            None
+        } else {
+            Some(Outcome::Add(c))
         }
     }
 
-    /// The text of each row of the title screen: `(line, note)`.
+    /// The text of each row of the title screen: `(line, note)`; a character's note says it is the
+    /// one in the world behind the panel.
     pub fn row_texts(&self) -> Vec<(String, String)> {
-        self.main_rows()
+        let rows = self.main_rows();
+        self.main_labels()
             .into_iter()
+            .zip(rows)
             .enumerate()
-            .map(|(i, r)| (format!("{} {r}", marker(i == self.cursor)), String::new()))
+            .map(|(i, (label, row))| {
+                let note = match row {
+                    MainRow::Slot(s) if self.slots.get(s).is_some_and(|s| s.id == self.active) => {
+                        "In the valley now".to_string()
+                    }
+                    _ => String::new(),
+                };
+                (format!("{} {label}", marker(i == self.cursor)), note)
+            })
             .collect()
     }
 
@@ -475,10 +614,53 @@ impl Menu {
         "WoW Souls"
     }
 
+    /// The highlighted character, else where the world is.
     pub fn subtitle(&self) -> String {
-        match &self.existing {
-            Some(c) => format!("{}, {} {}", c.name, c.race.name(), c.class.name()),
+        let shown = match self.main_rows().get(self.cursor) {
+            Some(MainRow::Slot(i)) => self.slots.get(*i),
+            _ => self.slots.iter().find(|s| s.id == self.active),
+        };
+        match shown {
+            Some(s) => {
+                let c = &s.character;
+                format!("{}, {} {}", c.name, c.race.name(), c.class.name())
+            }
             None => "Northshire Valley".to_string(),
+        }
+    }
+
+    pub(crate) fn shown_slot(&self) -> Option<&SlotInfo> {
+        match self.main_rows().get(self.cursor) {
+            Some(MainRow::Slot(i)) => self.slots.get(*i),
+            _ => self
+                .slots
+                .iter()
+                .find(|s| s.id == self.last_character)
+                .or_else(|| self.slots.first()),
+        }
+    }
+
+    pub(crate) fn preview_selection(&self) -> Selection {
+        if self.screen == Screen::Create {
+            return self.sel.clone();
+        }
+        let Some(slot) = self.shown_slot() else {
+            return self.sel.clone();
+        };
+        let c = &slot.character;
+        Selection {
+            race: c.race.id(),
+            sex: u8::from(c.sex == Sex::Female),
+            class: c.class.id(),
+            dials: [
+                c.dials.skin,
+                c.dials.face,
+                c.dials.hair_style,
+                c.dials.hair_color,
+                c.dials.facial_hair,
+            ],
+            name: c.name.clone(),
+            yaw: 0.0,
         }
     }
 }
@@ -511,11 +693,54 @@ pub fn sound_for(before: &Selection, after: &Selection, p: Press) -> Option<&'st
 // ---------------------------------------------------------------------------------------------
 // The game side.
 
-/// Where the character is saved, and whether that file could not be read (never written over then).
+/// Where the loaded character is saved, and whether that file could not be read (never written
+/// over then).
 #[derive(Resource)]
 struct CharacterFile {
     path: PathBuf,
     blocked: Option<String>,
+}
+
+/// The characters saved, read at start: the title's list.
+#[derive(Resource, Clone, Default)]
+struct SavedList {
+    slots: Vec<SlotInfo>,
+    active: u32,
+}
+
+/// The saves folder (`%LOCALAPPDATA%\WoWSouls`) the slots live under.
+fn saves_root() -> PathBuf {
+    crate::saves::root()
+}
+
+/// Starts the game again (every save is read at start), on `slot` or, with `None`, on the slot
+/// played last; whether it did. The child must not inherit this run's own `WOWSOULS_SLOT`.
+fn relaunch(slot: Option<u32>) -> bool {
+    if crate::run_mode::unattended() {
+        // A check ends here: a child would run the same script again, and again.
+        info!("menu: unattended, not relaunching (slot {slot:?})");
+        return true;
+    }
+    match std::env::current_exe().and_then(|exe| {
+        let mut command = std::process::Command::new(exe);
+        match slot {
+            Some(id) => command.env("WOWSOULS_SLOT", id.to_string()),
+            None => command.env_remove("WOWSOULS_SLOT"),
+        };
+        command.spawn()
+    }) {
+        Ok(_) => true,
+        Err(e) => {
+            warn!("menu: could not restart ({e}); start the game again");
+            false
+        }
+    }
+}
+
+fn unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 #[derive(Component)]
@@ -547,6 +772,7 @@ enum Label {
 struct RowButton(usize);
 
 pub fn plugin(app: &mut App) {
+    roster::plugin(app);
     app.insert_resource(Script {
         steps: std::env::var("WOWSOULS_MENU_SCRIPT")
             .map(|s| parse_script(&s))
@@ -582,8 +808,41 @@ pub(crate) fn load_character(mut commands: Commands) {
             c.class.name()
         );
     }
+    // The title's list: every slot with a character (`WOWSOULS_CHARACTER` names one file, the list
+    // is then that one).
+    let active = crate::saves::active();
+    let slots: Vec<SlotInfo> = if std::env::var_os("WOWSOULS_CHARACTER").is_some() {
+        chosen
+            .iter()
+            .map(|c| SlotInfo {
+                id: active,
+                character: c.clone(),
+            })
+            .collect()
+    } else {
+        let root = saves_root();
+        crate::saves::slots(&root)
+            .into_iter()
+            .filter_map(|id| {
+                let file = crate::saves::slot_dir(&root, id).join(crate::saves::CHARACTER_FILE);
+                match character::load(&file) {
+                    Ok(Some(character)) => Some(SlotInfo { id, character }),
+                    Ok(None) => None,
+                    Err(e) => {
+                        warn!("menu: slot {id} cannot be read ({e}); it is left out of the list");
+                        None
+                    }
+                }
+            })
+            .collect()
+    };
+    info!(
+        "menu: {} saved character(s), slot {active} loaded",
+        slots.len()
+    );
     commands.insert_resource(character::Chosen(chosen));
     commands.insert_resource(CharacterFile { path, blocked });
+    commands.insert_resource(SavedList { slots, active });
 }
 
 fn default_name() -> String {
@@ -595,22 +854,18 @@ fn default_name() -> String {
 
 fn enter(
     mut commands: Commands,
-    chosen: Res<character::Chosen>,
+    saved: Res<SavedList>,
     hud: Option<Res<crate::hud::art::HudArt>>,
     data: Option<Res<crate::create::CreateData>>,
     mut fonts: ResMut<Assets<Font>>,
 ) {
     let rules = data.as_deref().map(|d| d.rules.clone()).unwrap_or_default();
-    let mut menu = Menu::new(chosen.0.clone(), &default_name(), rules);
+    let mut menu = Menu::new(saved.slots.clone(), saved.active, &default_name(), rules);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(1, |d| d.as_nanos() as u64);
     menu.seed(nanos);
-    let font = std::fs::read("C:/Windows/Fonts/georgia.ttf")
-        .ok()
-        .and_then(|b| Font::try_from_bytes(b).ok())
-        .map(|f| fonts.add(f))
-        .unwrap_or_default();
+    let font = crate::hud::font::project_font(&mut fonts);
     let parchment = hud
         .as_deref()
         .map(|h| h.sprite_image("soul_param/bg_parchment_0"))
@@ -648,7 +903,9 @@ fn enter(
     // A dark backing under the parchment (which is translucent), so the small print reads over the
     // lit valley behind.
     panel.insert(BackgroundColor(Color::srgba(0.04, 0.03, 0.02, 0.86)));
-    if let Some(image) = parchment {
+    if crate::hud::theme::enabled() {
+        crate::hud::theme::dress(&mut panel);
+    } else if let Some(image) = parchment {
         let mut img = ImageNode::new(image);
         img.image_mode = NodeImageMode::Sliced(TextureSlicer {
             border: BorderRect::all(18.0),
@@ -694,6 +951,9 @@ fn enter(
     }
     text(&mut commands, panel, 16.0, WARN, Label::Message);
     text(&mut commands, panel, 13.0, MUTED, Label::Footer);
+    if crate::hud::theme::enabled() {
+        roster::spawn(&mut commands, root, &font, &menu);
+    }
     commands.insert_resource(menu);
     info!("menu: open");
 }
@@ -704,31 +964,6 @@ fn exit(mut commands: Commands, roots: Query<Entity, With<MenuRoot>>) {
     }
     commands.remove_resource::<Menu>();
     commands.remove_resource::<MenuStyle>();
-}
-
-/// The saves a replaced character takes with it to the backup folder. The world state (dead bosses,
-/// first kills, held loot) is the old character's history too: a new one must find the valley whole.
-const REPLACED_SAVES: [&str; 6] = [
-    "character-v1.txt",
-    "quests-v1.txt",
-    "items-v1.txt",
-    "souls-v1.txt",
-    "clock-v1.txt",
-    crate::world_state::FILE_NAME,
-];
-
-/// Archives the saves of the old character into a backup folder next to them (nothing is deleted) and
-/// returns the folder. `names` are the files, looked up in `dir`.
-pub fn archive_saves(dir: &Path, names: &[&str], stamp: u64) -> std::io::Result<PathBuf> {
-    let backup = dir.join(format!("backup-{stamp}"));
-    std::fs::create_dir_all(&backup)?;
-    for name in names {
-        let from = dir.join(name);
-        if from.is_file() {
-            std::fs::rename(&from, backup.join(name))?;
-        }
-    }
-    Ok(backup)
 }
 
 fn presses(
@@ -757,6 +992,9 @@ fn presses(
     if key(KeyCode::Escape) || pad(GamepadButton::East) {
         out.push(Press::Back);
     }
+    if key(KeyCode::Delete) || pad(GamepadButton::West) {
+        out.push(Press::Delete);
+    }
     // Typing: letters and the backspace, repeating while held.
     for ev in typed.read() {
         if ev.state != ButtonState::Pressed {
@@ -779,7 +1017,7 @@ fn input(
     pads: Query<&Gamepad>,
     mut typed: MessageReader<KeyboardInput>,
     mut clicks: MessageReader<MenuPress>,
-    rows: Query<(&Interaction, &RowButton), Changed<Interaction>>,
+    rows: Query<(&Interaction, &RowButton, Has<roster::RosterRow>), Changed<Interaction>>,
     file: Option<Res<CharacterFile>>,
     mut quests: Option<ResMut<crate::quests::QuestGame>>,
     mut next: ResMut<NextState<Phase>>,
@@ -815,17 +1053,25 @@ fn input(
         script.next += 1;
         all.push(p);
     }
-    for (interaction, row) in &rows {
+    for (interaction, row, roster_row) in &rows {
         if menu.screen != Screen::Main {
             continue;
         }
         match interaction {
-            Interaction::Hovered => menu.cursor = row.0.min(menu.rows().saturating_sub(1)),
+            Interaction::Hovered if !roster_row => {
+                menu.cursor = row.0.min(menu.rows().saturating_sub(1))
+            }
             Interaction::Pressed => {
                 menu.cursor = row.0.min(menu.rows().saturating_sub(1));
-                all.push(Press::Confirm);
+                if roster_row {
+                    menu.pending_delete = None;
+                    menu.message.clear();
+                    menu.remember_character();
+                } else {
+                    all.push(Press::Confirm);
+                }
             }
-            Interaction::None => {}
+            _ => {}
         }
     }
     for p in all {
@@ -845,7 +1091,7 @@ fn input(
             continue;
         };
         let blocked = file.as_deref().and_then(|f| f.blocked.clone());
-        if let (Outcome::Create(_) | Outcome::Replace(_), Some(audio)) =
+        if let (Outcome::Create(_) | Outcome::Add(_), Some(audio)) =
             (&outcome, audio.as_deref_mut())
         {
             audio.play_named("gsCharacterCreationCreateChar", 0.8, "menu");
@@ -864,10 +1110,26 @@ fn input(
             }
             Outcome::Enter => {
                 info!("menu: enter the world");
+                // The slot played last is the one the game opens on next time.
+                if let Err(e) = crate::saves::set_active(&saves_root(), menu.active) {
+                    warn!("menu: could not remember the slot ({e})");
+                }
                 next.set(Phase::Playing);
                 return;
             }
-            Outcome::Create(c) | Outcome::Replace(c) if blocked.is_some() => {
+            Outcome::Switch(id) => {
+                let root = saves_root();
+                match crate::saves::set_active(&root, id) {
+                    Ok(()) if relaunch(Some(id)) => {
+                        info!("menu: switching to slot {id}, restarting");
+                        exit.write(AppExit::Success);
+                        return;
+                    }
+                    Ok(()) => menu.message = "Could not restart the game; start it again.".into(),
+                    Err(e) => menu.message = format!("Could not switch character: {e}"),
+                }
+            }
+            Outcome::Create(c) if blocked.is_some() => {
                 menu.message = format!(
                     "The saved character cannot be read ({}); nothing was written.",
                     blocked.unwrap_or_default()
@@ -886,8 +1148,11 @@ fn input(
                             c.race.name(),
                             c.class.name()
                         );
+                        if let Err(e) = crate::saves::set_active(&saves_root(), menu.active) {
+                            warn!("menu: could not remember the slot ({e})");
+                        }
                         if let Some(g) = quests.as_deref_mut() {
-                            g.set_player_name(&c.name);
+                            g.set_player_character(&c);
                         }
                         commands.insert_resource(character::Chosen(Some(c)));
                         next.set(Phase::Playing);
@@ -896,34 +1161,47 @@ fn input(
                     Err(e) => menu.message = format!("Could not save the character: {e}"),
                 }
             }
-            Outcome::Replace(c) => {
-                let path = file
-                    .as_deref()
-                    .map_or_else(character::save_path, |f| f.path.clone());
-                let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-                let stamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs());
-                let result = archive_saves(&dir, &REPLACED_SAVES, stamp).and_then(|backup| {
-                    info!(
-                        "menu: the old character's saves went to {}",
-                        backup.display()
+            Outcome::Add(c) => {
+                // A slot of its own; the saves of this run stay where they are.
+                let root = saves_root();
+                let Some(id) = crate::saves::next_id(&root) else {
+                    menu.message = format!(
+                        "The list holds {} characters: delete one first.",
+                        crate::saves::MAX_CHARACTERS
                     );
-                    character::save(&path, &c)
-                });
+                    continue;
+                };
+                let file = crate::saves::slot_dir(&root, id).join(crate::saves::CHARACTER_FILE);
+                let result =
+                    character::save(&file, &c).and_then(|()| crate::saves::set_active(&root, id));
                 match result {
-                    Ok(()) => {
-                        // A fresh process reads the fresh saves.
-                        match std::env::current_exe()
-                            .and_then(|exe| std::process::Command::new(exe).spawn())
-                        {
-                            Ok(_) => info!("menu: restarting for {}", c.name),
-                            Err(e) => warn!("menu: could not restart ({e}); start the game again"),
-                        }
+                    Ok(()) if relaunch(Some(id)) => {
+                        info!("menu: {} is slot {id}, restarting", c.name);
                         exit.write(AppExit::Success);
                         return;
                     }
-                    Err(e) => menu.message = format!("Could not replace the character: {e}"),
+                    Ok(()) => {
+                        menu.message = "Could not restart the game; start it again.".into();
+                    }
+                    Err(e) => menu.message = format!("Could not save the character: {e}"),
+                }
+            }
+            Outcome::Delete(id) => {
+                let root = saves_root();
+                match crate::saves::archive_slot(&root, id, unix_seconds()) {
+                    Ok(backup) => {
+                        info!("menu: slot {id} went to {}", backup.display());
+                        if id == menu.active {
+                            // Its saves are in memory and would be written back: start again, on the
+                            // slot played last, or on a first run.
+                            relaunch(None);
+                            exit.write(AppExit::Success);
+                            return;
+                        }
+                        menu.remove_slot(id);
+                        menu.message = "The progress is in a backup folder.".into();
+                    }
+                    Err(e) => menu.message = format!("Could not delete the character: {e}"),
                 }
             }
         }
@@ -934,11 +1212,18 @@ fn input(
 fn render(
     menu: Res<Menu>,
     mut labels: Query<(&Label, &mut Text, &mut TextColor)>,
-    mut rows: Query<(&RowButton, &mut Node, &mut BackgroundColor), Without<MenuPanel>>,
+    mut rows: Query<
+        (&RowButton, &mut Node, &mut BackgroundColor),
+        (
+            Without<MenuPanel>,
+            Without<roster::RosterRow>,
+            Without<roster::Command>,
+        ),
+    >,
     mut panel: Query<&mut Node, With<MenuPanel>>,
 ) {
     if let Ok(mut node) = panel.single_mut() {
-        let want = if menu.screen == Screen::Main {
+        let want = if menu.screen == Screen::Main && !crate::hud::theme::enabled() {
             Display::Flex
         } else {
             Display::None
@@ -956,7 +1241,15 @@ fn render(
             Label::Title => (menu.title().to_string(), GOLD),
             Label::Subtitle => (menu.subtitle(), MUTED),
             Label::Message => (menu.message.clone(), WARN),
-            Label::Footer => ("Up / Down  Move      Enter / A  Select".to_string(), MUTED),
+            Label::Footer => (
+                if menu.slots.is_empty() {
+                    "Up / Down  Move      Enter / A  Select".to_string()
+                } else {
+                    "Up / Down  Move      Enter / A  Select      Delete / X  Delete character"
+                        .to_string()
+                },
+                MUTED,
+            ),
             Label::Row(i) => (
                 texts.get(i).map(|t| t.0.clone()).unwrap_or_default(),
                 if i == menu.cursor { GOLD } else { IVORY },
@@ -980,7 +1273,7 @@ fn render(
             node.display = want;
         }
         let shade = if row.0 == menu.cursor {
-            Color::srgba(1.0, 0.9, 0.6, 0.08)
+            crate::hud::theme::SELECTED
         } else {
             Color::NONE
         };
@@ -998,7 +1291,7 @@ fn camera(
     avatar: Query<&Transform, (With<Avatar>, Without<benilla_world::view::WorldCamera>)>,
     mut cam: Query<&mut Transform, With<benilla_world::view::WorldCamera>>,
 ) {
-    if menu.screen != Screen::Main {
+    if menu.screen != Screen::Main || crate::hud::theme::enabled() {
         return;
     }
     let (Ok(body), Ok(mut cam)) = (avatar.single(), cam.single_mut()) else {
@@ -1021,13 +1314,26 @@ mod tests {
         Arc::new(Rules::standard())
     }
 
+    fn slot(id: u32, name: &str) -> SlotInfo {
+        SlotInfo {
+            id,
+            character: Character::human_warrior(name),
+        }
+    }
+
     fn fresh() -> Menu {
-        Menu::new(None, "Adventurer", rules())
+        Menu::new(Vec::new(), 1, "Adventurer", rules())
     }
 
     fn saved() -> Menu {
+        Menu::new(vec![slot(1, "Jacob")], 1, "Adventurer", rules())
+    }
+
+    /// Two characters, the second (Garrick, slot 2) the one this process loaded.
+    fn two() -> Menu {
         Menu::new(
-            Some(Character::human_warrior("Jacob")),
+            vec![slot(1, "Jacob"), slot(2, "Garrick")],
+            2,
             "Adventurer",
             rules(),
         )
@@ -1076,10 +1382,39 @@ mod tests {
         assert_eq!(m.screen, Screen::Main);
         assert_eq!(
             m.main_rows(),
-            ["Enter the world", "New character", "Options", "Quit"]
+            [
+                MainRow::Slot(0),
+                MainRow::New,
+                MainRow::Options,
+                MainRow::Quit
+            ]
         );
-        assert_eq!(fresh().main_rows(), ["Create character", "Options", "Quit"]);
+        assert_eq!(
+            m.main_labels(),
+            ["Jacob, Human Warrior", "New character", "Options", "Quit"]
+        );
+        assert_eq!(
+            fresh().main_labels(),
+            ["Create character", "Options", "Quit"]
+        );
         assert!(m.subtitle().contains("Jacob") && m.subtitle().contains("Warrior"));
+    }
+
+    #[test]
+    fn the_title_lists_every_character_and_opens_on_the_one_that_is_loaded() {
+        let m = two();
+        assert_eq!(
+            m.main_labels(),
+            [
+                "Jacob, Human Warrior",
+                "Garrick, Human Warrior",
+                "New character",
+                "Options",
+                "Quit"
+            ]
+        );
+        assert_eq!(m.cursor, 1, "the loaded character is the highlighted one");
+        assert!(m.subtitle().contains("Garrick"));
     }
 
     #[test]
@@ -1106,6 +1441,127 @@ mod tests {
         let mut m = saved();
         m.press(Press::Up);
         assert_eq!(m.press(Press::Confirm), Some(Outcome::Quit));
+    }
+
+    #[test]
+    fn the_loaded_character_enters_and_another_is_a_switch() {
+        let mut m = two();
+        assert_eq!(m.press(Press::Confirm), Some(Outcome::Enter));
+        m.press(Press::Up);
+        assert_eq!(m.cursor, 0);
+        assert_eq!(
+            m.press(Press::Confirm),
+            Some(Outcome::Switch(1)),
+            "another character's saves are read at start: the game relaunches on it"
+        );
+    }
+
+    #[test]
+    fn choosing_an_inactive_mage_previews_his_look_and_preserves_it_across_commands() {
+        let mut mage = slot(2, "Aldren");
+        mage.character.class = Class::Mage;
+        mage.character.dials = Dials::from_array([2, 3, 1, 4, 0]);
+        let mut m = Menu::new(vec![slot(1, "Jacob"), mage], 1, "Adventurer", rules());
+        assert_eq!(
+            m.press(Press::Down),
+            None,
+            "selection alone never starts play"
+        );
+        let preview = m.preview_selection();
+        assert_eq!(preview.class, Class::Mage.id());
+        assert_eq!(preview.name, "Aldren");
+        assert_eq!(preview.dials, [2, 3, 1, 4, 0]);
+        m.press(Press::Down); // New character
+        assert_eq!(m.preview_selection().name, "Aldren");
+        assert_eq!(
+            m.press(Press::Play),
+            Some(Outcome::Switch(2)),
+            "the Play button always starts the chosen profile"
+        );
+        m.press(Press::Confirm);
+        assert_eq!(m.screen, Screen::Create);
+        m.press(Press::Back);
+        assert_eq!(
+            m.cursor, 1,
+            "Back returns to the character we were choosing"
+        );
+        assert_eq!(m.press(Press::Confirm), Some(Outcome::Switch(2)));
+    }
+
+    #[test]
+    fn a_new_character_beside_saved_ones_is_added_and_never_replaces() {
+        let mut m = two();
+        m.press(Press::Down); // New character
+        assert_eq!(m.press(Press::Confirm), None);
+        assert_eq!(m.screen, Screen::Create);
+        let made = m.press(Press::Create);
+        assert_eq!(
+            made,
+            Some(Outcome::Add(Character {
+                dials: Dials::from_array([0; 5]),
+                ..Character::human_warrior("Adventurer")
+            })),
+            "no warning, no replace: a slot of its own"
+        );
+        // The very first character is made in this run, no relaunch.
+        assert!(matches!(
+            fresh().press(Press::Create),
+            Some(Outcome::Create(_))
+        ));
+    }
+
+    #[test]
+    fn a_full_list_offers_no_new_character_and_says_why() {
+        let slots: Vec<SlotInfo> = (1..=crate::saves::MAX_CHARACTERS as u32)
+            .map(|i| slot(i, "Jacob"))
+            .collect();
+        let m = Menu::new(slots, 1, "Adventurer", rules());
+        assert!(!m.main_rows().contains(&MainRow::New));
+        assert_eq!(m.main_labels().last().map(String::as_str), Some("Quit"));
+        assert!(m.subtitle().contains("Jacob"));
+    }
+
+    #[test]
+    fn delete_asks_twice_and_only_on_a_character() {
+        let mut m = two();
+        assert_eq!(m.press(Press::Delete), None, "the first press only warns");
+        assert!(m.message.contains("Garrick"), "{}", m.message);
+        assert_eq!(m.press(Press::Delete), Some(Outcome::Delete(2)));
+        // Moving away in between cancels the warning.
+        let mut m = two();
+        m.press(Press::Delete);
+        m.press(Press::Up);
+        assert_eq!(
+            m.press(Press::Delete),
+            None,
+            "armed again for Jacob, not deleted"
+        );
+        assert!(m.message.contains("Jacob"), "{}", m.message);
+        // A row that is not a character cannot be deleted.
+        let mut m = two();
+        m.press(Press::Down);
+        assert_eq!(m.press(Press::Delete), None);
+        assert!(m.message.is_empty());
+        assert_eq!(m.press(Press::Delete), None);
+    }
+
+    #[test]
+    fn a_deleted_character_leaves_the_list_and_the_cursor_stays_inside_it() {
+        let mut m = two();
+        m.remove_slot(2);
+        assert_eq!(
+            m.main_labels().len(),
+            4,
+            "Jacob, New character, Options, Quit"
+        );
+        assert!(m.cursor < m.main_rows().len());
+        m.remove_slot(1);
+        assert_eq!(m.main_labels(), ["Create character", "Options", "Quit"]);
+        assert_eq!(
+            m.screen,
+            Screen::Create,
+            "with nobody left the creation screen opens, as on a first run"
+        );
     }
 
     #[test]
@@ -1159,6 +1615,7 @@ mod tests {
         // The pre-filled name goes at the first letter, wherever the focus is.
         m.press(Press::Char('j'));
         assert_eq!(m.sel.name, "j");
+        assert_eq!(m.focus(), Row::Name, "typing visibly focuses the field");
         for c in "acob".chars() {
             m.press(Press::Char(c));
         }
@@ -1217,7 +1674,7 @@ mod tests {
     #[test]
     fn the_grey_races_are_skipped_by_the_keys_and_ignored_by_the_mouse() {
         let only = Arc::new(Rules::standard().only_races(&[1, 6]));
-        let mut m = Menu::new(None, "Adventurer", only);
+        let mut m = Menu::new(Vec::new(), 1, "Adventurer", only);
         m.press(Press::Race(2));
         assert_eq!(m.sel.race, 1, "the orc is grey");
         m.press(Press::Right);
@@ -1229,7 +1686,8 @@ mod tests {
         assert_eq!(m.sel.race, 1, "and wraps");
         // With the human alone the key does nothing and nothing breaks.
         let mut m = Menu::new(
-            None,
+            Vec::new(),
+            1,
             "Adventurer",
             Arc::new(Rules::standard().only_races(&[1])),
         );
@@ -1284,7 +1742,25 @@ mod tests {
     }
 
     #[test]
-    fn only_a_male_human_warrior_can_be_created_and_the_menu_says_so() {
+    fn clicking_the_name_then_confirming_creates_a_supported_mage() {
+        let mut m = fresh();
+        m.sel.class = Class::Mage.id();
+        m.press(Press::NameFocus);
+        assert_eq!(m.focus(), Row::Name);
+        for c in "Aldren".chars() {
+            m.press(Press::Char(c));
+        }
+        assert_eq!(m.press(Press::Confirm), None);
+        assert_eq!(m.focus(), Row::Create);
+        let Some(Outcome::Create(character)) = m.press(Press::Confirm) else {
+            panic!("Mage should be available: {}", m.message);
+        };
+        assert_eq!(character.class, Class::Mage);
+        assert_eq!(character.name, "Aldren");
+    }
+
+    #[test]
+    fn unsupported_races_classes_and_sexes_cannot_be_created_and_the_menu_says_so() {
         for (race, slot, sex) in [(2u8, 0u8, 0u8), (1, 1, 0), (1, 0, 1)] {
             let mut m = fresh();
             m.press(Press::Race(race));
@@ -1300,36 +1776,12 @@ mod tests {
     }
 
     #[test]
-    fn replacing_a_saved_character_asks_twice() {
+    fn enter_on_the_create_row_is_the_same_press_as_the_button() {
         let mut m = saved();
         m.press(Press::Down);
         m.press(Press::Confirm); // New character
-        assert_eq!(m.screen, Screen::Create);
-        assert_eq!(m.press(Press::Create), None, "the first press only warns");
-        assert!(m.message.contains("replaces Jacob"), "{}", m.message);
-        assert_eq!(
-            m.press(Press::Create),
-            Some(Outcome::Replace(Character {
-                dials: Dials::from_array([0; 5]),
-                ..Character::human_warrior("Adventurer")
-            })),
-            "the second confirms"
-        );
-        // Moving away in between cancels the warning.
-        let mut m = saved();
-        m.press(Press::Down);
-        m.press(Press::Confirm);
-        m.press(Press::Create);
-        m.press(Press::Down);
-        assert_eq!(m.press(Press::Create), None, "warned again, not replaced");
-        // Enter on the Create row is the same press as the button.
-        let mut m = saved();
-        m.press(Press::Down);
-        m.press(Press::Confirm);
         focus(&mut m, Row::Create);
-        assert_eq!(m.press(Press::Confirm), None);
-        assert!(m.confirm_replace);
-        assert!(matches!(m.press(Press::Confirm), Some(Outcome::Replace(_))));
+        assert!(matches!(m.press(Press::Confirm), Some(Outcome::Add(_))));
     }
 
     #[test]
@@ -1382,46 +1834,5 @@ mod tests {
             "a picker clicks even when nothing changes"
         );
         assert_eq!(sound_for(&a, &a, Press::Char('x')), None);
-    }
-
-    #[test]
-    fn the_old_saves_are_moved_to_a_backup_not_deleted() {
-        let dir = std::env::temp_dir().join(format!("wowsouls-menu-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("quests-v1.txt"), "q").unwrap();
-        std::fs::write(dir.join("items-v1.txt"), "i").unwrap();
-        let backup =
-            archive_saves(&dir, &["quests-v1.txt", "items-v1.txt", "souls-v1.txt"], 7).unwrap();
-        assert!(!dir.join("quests-v1.txt").exists() && !dir.join("items-v1.txt").exists());
-        assert_eq!(
-            std::fs::read_to_string(backup.join("quests-v1.txt")).unwrap(),
-            "q"
-        );
-        assert_eq!(
-            std::fs::read_to_string(backup.join("items-v1.txt")).unwrap(),
-            "i"
-        );
-        assert!(
-            !backup.join("souls-v1.txt").exists(),
-            "a file that was not there is skipped"
-        );
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    /// A replaced character must not inherit the old one's dead bosses (final review, Critical): the
-    /// world state (slain, first kills, held loot) goes to the backup with the rest.
-    #[test]
-    fn replacing_a_character_archives_every_save_including_the_world_state() {
-        for name in [
-            "character-v1.txt",
-            "quests-v1.txt",
-            "items-v1.txt",
-            "souls-v1.txt",
-            "clock-v1.txt",
-            crate::world_state::FILE_NAME,
-        ] {
-            assert!(REPLACED_SAVES.contains(&name), "{name}");
-        }
-        assert_eq!(REPLACED_SAVES.len(), 6);
     }
 }

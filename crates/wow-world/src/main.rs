@@ -19,13 +19,10 @@ use anyhow::{bail, Context, Result};
 use wow_world::db::Db;
 use wow_world::model::World;
 use wow_world::select::{select, spawns_without_path};
-use wow_world::valley::Valley;
+use wow_world::valley::{Valley, Zone};
 use wow_world::{manifest, valley};
 
 const DEFAULT_WOW: &str = r"C:\Spel\World of Warcraft 1.12\Data";
-/// The terrain tiles to read: the valley and a good margin of Elwynn around it (x north, y west).
-const BOUNDS: ([f32; 2], [f32; 2]) = ([-9600.0, -600.0], [-8500.0, 200.0]);
-
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -37,13 +34,14 @@ struct Args {
     /// `wow_world::default_manifest_path()`.
     out: Option<PathBuf>,
     svg: bool,
+    zone: Zone,
 }
 
 impl Args {
     fn import_out(&self) -> PathBuf {
         self.out
             .clone()
-            .unwrap_or_else(|| repo().join("cache/world/northshire.txt"))
+            .unwrap_or_else(|| repo().join(format!("cache/world/{}.txt", self.zone.slug())))
     }
 
     fn summary_in(&self) -> PathBuf {
@@ -59,6 +57,7 @@ fn parse_args(rest: &[String]) -> Result<Args> {
         wow: PathBuf::from(std::env::var("WOW_DATA").unwrap_or_else(|_| DEFAULT_WOW.to_string())),
         out: None,
         svg: false,
+        zone: Zone::Northshire,
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -72,6 +71,17 @@ fn parse_args(rest: &[String]) -> Result<Args> {
             "--wow" => a.wow = value("--wow")?,
             "--out" => a.out = Some(value("--out")?),
             "--svg" => a.svg = true,
+            "--zone" => {
+                let zone = it
+                    .next()
+                    .context("--zone needs northshire, elwynn or westfall")?;
+                a.zone = match zone.as_str() {
+                    "northshire" => Zone::Northshire,
+                    "elwynn" => Zone::Elwynn,
+                    "westfall" => Zone::Westfall,
+                    _ => bail!("unknown zone {zone}; use northshire, elwynn or westfall"),
+                };
+            }
             other => bail!("unknown option {other}"),
         }
     }
@@ -88,6 +98,26 @@ fn main() -> Result<()> {
         "import" => import(&a),
         "areas" => areas(&a),
         "summary" => summary(&a),
+        "combine" => {
+            let load = |name: &str| -> Result<World> {
+                manifest::parse(&std::fs::read_to_string(
+                    repo().join(format!("data/world/{name}.txt")),
+                )?)
+            };
+            let world = wow_world::merge::worlds(load("elwynn")?, load("westfall")?)?;
+            let out = a
+                .out
+                .clone()
+                .unwrap_or_else(|| repo().join("data/world/elwynn-westfall.txt"));
+            std::fs::write(&out, manifest::write(&world))?;
+            println!(
+                "wrote {}: {} creature sites, {} quests",
+                out.display(),
+                world.spawns.len(),
+                world.quests.len()
+            );
+            Ok(())
+        }
         other => bail!("unknown command {other}"),
     }
 }
@@ -95,8 +125,9 @@ fn main() -> Result<()> {
 fn import(a: &Args) -> Result<()> {
     let out = a.import_out();
     let db = Db::load(&a.tsv)?;
-    let v = Valley::load(&a.wow, BOUNDS)?;
-    let world = select(&db, &v);
+    let v = Valley::load_zone(&a.wow, a.zone.bounds(), a.zone)?;
+    let mut world = select(&db, &v);
+    v.annotate_world(&mut world)?;
     if world.spawns.is_empty() || world.quests.is_empty() {
         bail!(
             "the selection is empty ({} spawns, {} quests): refusing to write {}",
@@ -113,7 +144,7 @@ fn import(a: &Args) -> Result<()> {
     println!("wrote {}", out.display());
     print_summary(&world);
     if a.svg {
-        let svg = out.with_file_name("northshire-spawns.svg");
+        let svg = out.with_file_name(format!("{}-spawns.svg", a.zone.slug()));
         std::fs::write(&svg, draw(&world, &v))?;
         println!("wrote {}", svg.display());
     }
@@ -253,20 +284,21 @@ fn print_summary(w: &World) {
 /// counts as the valley: the list to read before trusting the selection.
 fn areas(a: &Args) -> Result<()> {
     let db = Db::load(&a.tsv)?;
-    let v = Valley::load(&a.wow, BOUNDS)?;
+    let bounds = a.zone.bounds();
+    let v = Valley::load_zone(&a.wow, bounds, a.zone)?;
     let inside = |p: &[f32; 3]| {
-        (BOUNDS.0[0]..=BOUNDS.1[0]).contains(&p[0]) && (BOUNDS.0[1]..=BOUNDS.1[1]).contains(&p[1])
+        (bounds.0[0]..=bounds.1[0]).contains(&p[0]) && (bounds.0[1]..=bounds.1[1]).contains(&p[1])
     };
     let mut count: BTreeMap<u32, (usize, usize)> = BTreeMap::new();
     for s in db.spawns.iter().filter(|s| !s.event && inside(&s.pos)) {
-        count.entry(v.area_of(s.pos[0], s.pos[1])).or_default().0 += 1;
+        count.entry(v.area_at(s.pos)).or_default().0 += 1;
     }
     for s in db
         .object_spawns
         .iter()
         .filter(|s| !s.event && inside(&s.pos))
     {
-        count.entry(v.area_of(s.pos[0], s.pos[1])).or_default().1 += 1;
+        count.entry(v.area_at(s.pos)).or_default().1 += 1;
     }
     println!("area id  name  (parent)  creature spawns / object spawns  valley?");
     for (id, (c, o)) in count {
@@ -274,7 +306,7 @@ fn areas(a: &Args) -> Result<()> {
         println!(
             "{id:>7}  {}  ({p} {pn})  {c} / {o}  {}",
             v.name(id),
-            if v.is_valley_area(id) { "VALLEY" } else { "-" }
+            if v.is_zone_area(id) { "SELECTED" } else { "-" }
         );
     }
     // What stands in each area: the top entries by count and the spawn extent (x north, y west).
@@ -286,7 +318,7 @@ fn areas(a: &Args) -> Result<()> {
     let mut by_area: BTreeMap<u32, BTreeMap<u32, usize>> = BTreeMap::new();
     let mut extent: BTreeMap<u32, [f32; 4]> = BTreeMap::new();
     for s in db.spawns.iter().filter(|s| !s.event && inside(&s.pos)) {
-        let area = v.area_of(s.pos[0], s.pos[1]);
+        let area = v.area_at(s.pos);
         *by_area.entry(area).or_default().entry(s.entry).or_default() += 1;
         let e = extent
             .entry(area)
@@ -314,7 +346,7 @@ fn areas(a: &Args) -> Result<()> {
                 .join(", ")
         );
     }
-    println!("(valley root: area {})", valley::NORTHSHIRE_VALLEY);
+    println!("({} root: area {})", a.zone.slug(), a.zone.root());
     Ok(())
 }
 
@@ -324,7 +356,7 @@ fn draw(w: &World, v: &Valley) -> String {
     let cells: Vec<_> = v
         .cells()
         .into_iter()
-        .filter(|(_, a)| v.is_valley_area(*a))
+        .filter(|(_, a)| v.is_zone_area(*a))
         .collect();
     let (mut x0, mut x1, mut y0, mut y1) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
     let mut grow = |x: f32, y: f32| {

@@ -1,0 +1,2 @@
+# Preserve the exact upstream/local-fix snapshot bytes and SHA256SUMS across checkouts.
+crates/** -text

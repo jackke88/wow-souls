@@ -160,7 +160,7 @@ pub struct Moveset {
     pub r2: Option<[SwingSpec; R2_CHAIN as usize]>,
     pub roll_attack: Option<SwingSpec>,
     /// The specs come from Dark Souls clips, which pose the rig and move the body.
-    pub ds: bool,
+    pub reference: bool,
 }
 
 impl Moveset {
@@ -171,7 +171,7 @@ impl Moveset {
             r1: [SwingSpec::procedural(len); R1_CHAIN as usize],
             r2: None,
             roll_attack: None,
-            ds: false,
+            reference: false,
         }
     }
 
@@ -196,7 +196,7 @@ pub struct Swing {
     pub kind: MoveKind,
     pub spec: SwingSpec,
     /// From a Dark Souls clip: it poses the rig and moves the body.
-    pub ds: bool,
+    pub reference: bool,
     /// The number of this swing since the body was made: a new serial may strike everyone again.
     pub serial: u32,
 }
@@ -246,8 +246,8 @@ pub struct Evade {
     pub dir: Vec3,
     /// Its shape, fixed when it starts (the DS roll's comes from its clip).
     pub spec: EvadeSpec,
-    /// Played from the Dark Souls clip ([`crate::dsclip`]): no somersault, root-motion travel.
-    pub ds: bool,
+    /// Played from the Dark Souls clip ([`crate::motion_clip`]): no somersault, root-motion travel.
+    pub reference: bool,
 }
 
 impl Evade {
@@ -271,7 +271,7 @@ impl Evade {
     /// backstep does not turn.
     pub fn tumble(&self) -> f32 {
         match self.kind {
-            EvadeKind::Roll if !self.ds => {
+            EvadeKind::Roll if !self.reference => {
                 let u = (self.t / self.spec().travel).clamp(0.0, 1.0);
                 std::f32::consts::TAU * u * u * (3.0 - 2.0 * u)
             }
@@ -311,6 +311,38 @@ impl Reel {
     }
 }
 
+/// A spell cast's timing, in seconds from its start (from the Dark Souls cast clip's own flags): when
+/// the spell leaves the hand, when the body may act again, and when the clip ends.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CastSpec {
+    pub duration: f32,
+    pub release: f32,
+    pub recover: f32,
+}
+
+/// A cast in progress: the spell, how far in, its timing, its serial (a new cast may release again)
+/// and whom it was aimed at when the button was pressed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Cast {
+    pub t: f32,
+    pub spell: u32,
+    pub spec: CastSpec,
+    pub serial: u32,
+    pub target: Option<Entity>,
+}
+
+impl Cast {
+    /// The spell has left the hand.
+    pub fn released(&self) -> bool {
+        self.t >= self.spec.release
+    }
+
+    /// A buffered action may start now: the recovery has begun.
+    pub fn cancellable(&self) -> bool {
+        self.t >= self.spec.recover
+    }
+}
+
 /// What the body is committed to.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum ActionState {
@@ -327,6 +359,8 @@ pub enum ActionState {
     /// Struck, with the Dark Souls reaction clip: the body reels until the clip's control flags
     /// open, as a swing's cancel windows do.
     Reel(Reel),
+    /// A spell is being cast: the Dark Souls cast clip poses the body, which is committed to it.
+    Cast(Cast),
     /// Out of health: the body lies where it fell until the respawn resets it.
     Dead,
 }
@@ -358,6 +392,9 @@ pub struct Action {
     /// The death clip (an index of the kit's deaths) and the seconds since the body fell.
     pub death: Option<usize>,
     pub dead_t: f32,
+    pub guard_timing: crate::defense::GuardTiming,
+    pub training: crate::defense::Training,
+    pub parry_caught: bool,
 }
 
 impl Action {
@@ -384,6 +421,28 @@ impl Action {
 
     pub fn is_dead(&self) -> bool {
         self.state == ActionState::Dead
+    }
+
+    /// A cast may start now: the body is free, or an action is in its cancel window.
+    pub fn can_cast(&self) -> bool {
+        self.accepts(Press::Attack)
+    }
+
+    /// Starts a cast of `spell`; `false` (nothing changes) when the body cannot take one now.
+    pub fn begin_cast(&mut self, spell: u32, spec: CastSpec, target: Option<Entity>) -> bool {
+        if !self.can_cast() {
+            return false;
+        }
+        self.swings += 1;
+        self.state = ActionState::Cast(Cast {
+            t: 0.0,
+            spell,
+            spec,
+            serial: self.swings,
+            target,
+        });
+        self.buffer = None;
+        true
     }
 
     /// A blow lands: whatever the body was doing stops, and it reels.
@@ -433,6 +492,7 @@ impl Action {
             (ActionState::Defend(d), _) => {
                 d.kind == crate::defense::Kind::Hold || d.t >= d.spec.chain
             }
+            (ActionState::Cast(c), _) => c.cancellable(),
             (ActionState::Stagger { .. } | ActionState::Dead, _) => false,
         }
     }
@@ -471,17 +531,18 @@ pub struct StepInput {
     /// The roll this body rolls: the DS roll's shape when loaded, else [`ROLL`].
     pub roll: EvadeSpec,
     /// The roll is the Dark Souls clip.
-    pub ds_roll: bool,
+    pub evade_clips: bool,
     /// The backstep this body makes: the DS backstep's shape when loaded, else [`BACKSTEP`].
     pub backstep: EvadeSpec,
     /// The backstep is the Dark Souls clip.
-    pub ds_backstep: bool,
+    pub clip_backstep: bool,
     pub guard: bool,
     pub defense: Option<crate::defense::Specs>,
 }
 
 /// One frame of the action machine.
 pub fn step_action(a: &mut Action, stamina: &Stamina, i: StepInput, dt: f32) -> Decision {
+    a.guard_timing.tick(dt);
     if let Some(press) = i.press {
         a.buffer = Some(Buffered { press, age: 0.0 });
     } else if let Some(b) = a.buffer.as_mut() {
@@ -500,6 +561,7 @@ pub fn step_action(a: &mut Action, stamina: &Stamina, i: StepInput, dt: f32) -> 
         ActionState::Stagger { t, .. } => *t += dt,
         ActionState::Reel(r) => r.t += dt,
         ActionState::Defend(d) => d.t += dt,
+        ActionState::Cast(c) => c.t += dt,
     }
     let ready = stamina.can_spend() && i.grounded;
     if let Some(b) = a.buffer.filter(|b| ready && a.accepts(b.press)) {
@@ -523,6 +585,9 @@ pub fn step_action(a: &mut Action, stamina: &Stamina, i: StepInput, dt: f32) -> 
             _ => None,
         };
         if let Some(kind) = next {
+            if kind == Kind::Raise {
+                a.guard_timing.raise();
+            }
             a.state = ActionState::Defend(Playing::new(kind, specs.get(kind)));
             return Decision::Defense(kind);
         }
@@ -535,6 +600,7 @@ pub fn step_action(a: &mut Action, stamina: &Stamina, i: StepInput, dt: f32) -> 
         ActionState::Attack(s) => s.t >= s.spec.move_from,
         ActionState::Reel(r) => r.t >= r.spec.move_from,
         ActionState::Defend(d) => !d.kind.guarding() && d.t >= d.spec.movement,
+        ActionState::Cast(c) => c.cancellable(),
         _ => false,
     };
     if pushed && free {
@@ -548,6 +614,7 @@ pub fn step_action(a: &mut Action, stamina: &Stamina, i: StepInput, dt: f32) -> 
         ActionState::Stagger { t, duration } => t >= duration,
         ActionState::Reel(r) => r.t >= r.spec.duration,
         ActionState::Defend(d) => d.kind != crate::defense::Kind::Hold && d.t >= d.spec.duration,
+        ActionState::Cast(c) => c.t >= c.spec.duration,
     };
     if over {
         a.state = ActionState::Idle;
@@ -584,9 +651,12 @@ fn start(a: &mut Action, press: Press, i: &StepInput) -> Decision {
             let Some(specs) = i.defense else {
                 return Decision::None;
             };
+            let mut parry = specs.parry;
+            a.parry_caught = false;
+            parry.cost = (parry.cost - a.training.parry_discount).max(1.0);
             a.state = ActionState::Defend(crate::defense::Playing::new(
                 crate::defense::Kind::Parry,
-                specs.parry,
+                parry,
             ));
             Decision::Defense(crate::defense::Kind::Parry)
         }
@@ -601,7 +671,7 @@ fn start(a: &mut Action, press: Press, i: &StepInput) -> Decision {
                 t: 0.0,
                 kind,
                 spec,
-                ds: i.moves.ds,
+                reference: i.moves.reference,
                 serial: a.swings,
             });
             Decision::Swing { kind, chained }
@@ -614,16 +684,16 @@ fn start(a: &mut Action, press: Press, i: &StepInput) -> Decision {
                 let back = -Vec3::new(i.facing.x, 0.0, i.facing.z).normalize_or_zero();
                 (EvadeKind::Backstep, back)
             };
-            let (spec, ds) = match kind {
-                EvadeKind::Roll => (i.roll, i.ds_roll),
-                EvadeKind::Backstep => (i.backstep, i.ds_backstep),
+            let (spec, reference) = match kind {
+                EvadeKind::Roll => (i.roll, i.evade_clips),
+                EvadeKind::Backstep => (i.backstep, i.clip_backstep),
             };
             a.state = ActionState::Evade(Evade {
                 kind,
                 t: 0.0,
                 dir,
                 spec,
-                ds,
+                reference,
             });
             Decision::Evade(kind)
         }
@@ -752,16 +822,16 @@ mod tests {
             stick: Vec3::ZERO,
             facing: Vec3::NEG_Z,
             roll: ROLL,
-            ds_roll: false,
+            evade_clips: false,
             backstep: BACKSTEP,
-            ds_backstep: false,
+            clip_backstep: false,
             guard: false,
             defense: None,
         }
     }
 
     /// The Dark Souls straight sword's table (the spec's), as a moveset.
-    fn ds_moves() -> Moveset {
+    fn weapon_clips() -> Moveset {
         let s = |duration, hit, chain_from, evade_from, move_from, cost, mult| SwingSpec {
             duration,
             hit,
@@ -788,13 +858,13 @@ mod tests {
                 s(1.900, (0.333, 0.467), 0.933, 0.933, 1.200, 35.0, 1.25),
             ]),
             roll_attack: Some(s(2.100, (0.233, 0.333), 0.700, 0.767, 0.867, 20.0, 0.90)),
-            ds: true,
+            reference: true,
         }
     }
 
     #[test]
     fn shorter_weapon_chains_loop_after_their_authored_last_attack() {
-        let mut m = ds_moves();
+        let mut m = weapon_clips();
         m.chain_len = 2;
         let mut a = Action::default();
         let decisions = run_in(
@@ -885,7 +955,7 @@ mod tests {
             t,
             kind: MoveKind::R1(0),
             spec: SwingSpec::procedural(LEN),
-            ds: false,
+            reference: false,
             serial: 1,
         };
         assert_eq!(at(0.0).phase(), Some(SwingPhase::Startup));
@@ -982,7 +1052,7 @@ mod tests {
 
     #[test]
     fn a_ds_roll_takes_its_shape_from_the_input_and_does_not_tumble() {
-        let ds_spec = EvadeSpec {
+        let clip_spec = EvadeSpec {
             duration: 1.0,
             travel: 1.0,
             distance: 3.0,
@@ -992,8 +1062,8 @@ mod tests {
         };
         let mut a = Action::default();
         let i = StepInput {
-            roll: ds_spec,
-            ds_roll: true,
+            roll: clip_spec,
+            evade_clips: true,
             stick: Vec3::NEG_Z,
             ..input(Some(Press::Evade), true)
         };
@@ -1002,13 +1072,13 @@ mod tests {
             Decision::Evade(EvadeKind::Roll)
         );
         let e = *a.evading().unwrap();
-        assert!(e.ds && e.spec == ds_spec);
+        assert!(e.reference && e.spec == clip_spec);
         assert_eq!(Evade { t: 0.5, ..e }.tumble(), 0.0);
     }
 
     #[test]
     fn a_ds_backstep_takes_its_shape_from_the_input_and_leaves_the_roll_alone() {
-        let ds_back = EvadeSpec {
+        let clip_backstep = EvadeSpec {
             duration: 1.8,
             travel: 1.8,
             distance: 2.27,
@@ -1019,8 +1089,8 @@ mod tests {
         let mut a = Action::default();
         // Still stick: the backstep, shaped by the DS clip, leaving against the facing.
         let i = StepInput {
-            backstep: ds_back,
-            ds_backstep: true,
+            backstep: clip_backstep,
+            clip_backstep: true,
             ..input(Some(Press::Evade), true)
         };
         assert_eq!(
@@ -1028,14 +1098,14 @@ mod tests {
             Decision::Evade(EvadeKind::Backstep)
         );
         let e = *a.evading().unwrap();
-        assert!(e.ds && e.spec == ds_back);
+        assert!(e.reference && e.spec == clip_backstep);
         assert_eq!(e.dir, Vec3::Z, "against the facing (-Z)");
         assert_eq!(Evade { t: 0.5, ..e }.tumble(), 0.0);
         // A pushed stick is still the roll, with the roll's own shape and clip flag.
         let mut b = Action::default();
         let i = StepInput {
-            backstep: ds_back,
-            ds_backstep: true,
+            backstep: clip_backstep,
+            clip_backstep: true,
             stick: Vec3::X,
             ..input(Some(Press::Evade), true)
         };
@@ -1045,20 +1115,20 @@ mod tests {
         );
         let r = *b.evading().unwrap();
         assert!(
-            !r.ds && r.spec == ROLL,
+            !r.reference && r.spec == ROLL,
             "the backstep's shape is not the roll's"
         );
         // Without the DS backstep the procedural one stays.
         let mut c = Action::default();
         step_action(&mut c, &full(), input(Some(Press::Evade), true), DT);
         let p = *c.evading().unwrap();
-        assert!(!p.ds && p.spec == BACKSTEP);
+        assert!(!p.reference && p.spec == BACKSTEP);
     }
 
     #[test]
     fn a_pushed_stick_cancels_an_evade_only_from_its_cancel_window() {
         // Dark Souls' roll shape: a long stand-up, which movement may cancel from 1.1 s.
-        let ds_spec = EvadeSpec {
+        let clip_spec = EvadeSpec {
             duration: 2.0,
             travel: 2.0,
             distance: 4.5,
@@ -1069,8 +1139,8 @@ mod tests {
         let s = full();
         let step = |a: &mut Action, press: Option<Press>, stick: Vec3| {
             let i = StepInput {
-                roll: ds_spec,
-                ds_roll: true,
+                roll: clip_spec,
+                evade_clips: true,
                 stick,
                 ..input(press, true)
             };
@@ -1134,7 +1204,7 @@ mod tests {
             t,
             dir: Vec3::NEG_Z,
             spec: ROLL,
-            ds: false,
+            reference: false,
         };
         assert!(!at(0.0).invulnerable(), "the first frame is open");
         assert!(at(0.1).invulnerable());
@@ -1153,7 +1223,7 @@ mod tests {
             t,
             dir: Vec3::NEG_Z,
             spec: *kind.spec(),
-            ds: false,
+            reference: false,
         };
         assert_eq!(at(EvadeKind::Roll, 0.0).tumble(), 0.0);
         let half = at(EvadeKind::Roll, ROLL.travel * 0.5).tumble();
@@ -1251,7 +1321,7 @@ mod tests {
         assert_eq!(s.move_from, LEN, "a pushed stick never cuts it short");
         assert_eq!((s.cost, s.mult), (ATTACK_COST, 1.0));
         let m = Moveset::procedural(LEN);
-        assert!(!m.has_heavy() && m.roll_attack.is_none() && !m.ds);
+        assert!(!m.has_heavy() && m.roll_attack.is_none() && !m.reference);
     }
 
     #[test]
@@ -1259,7 +1329,7 @@ mod tests {
         let mut a = Action::default();
         // A press every 0.9 s: each lands in the chain window of the swing before.
         let presses: Vec<_> = (0..5).map(|n| (n as f32 * 0.9, Press::Attack)).collect();
-        let d = run_in(ds_moves(), &mut a, &presses, Vec3::ZERO, 4.6);
+        let d = run_in(weapon_clips(), &mut a, &presses, Vec3::ZERO, 4.6);
         let kinds: Vec<_> = d
             .iter()
             .filter_map(|(_, d)| match d {
@@ -1285,7 +1355,7 @@ mod tests {
         let mut a = Action::default();
         // Pressed at 0.5 s into R1-1, the chain flag opens at 0.767 s: the buffer (0.35 s) holds it.
         let d = run_in(
-            ds_moves(),
+            weapon_clips(),
             &mut a,
             &[(0.0, Press::Attack), (0.5, Press::Attack)],
             Vec3::ZERO,
@@ -1302,7 +1372,7 @@ mod tests {
     fn a_swing_serial_counts_every_swing() {
         let mut a = Action::default();
         run_in(
-            ds_moves(),
+            weapon_clips(),
             &mut a,
             &[(0.0, Press::Attack), (0.9, Press::Attack)],
             Vec3::ZERO,
@@ -1313,7 +1383,7 @@ mod tests {
             panic!("a swing is running")
         };
         assert_eq!(s.serial, 2);
-        assert!(s.ds);
+        assert!(s.reference);
     }
 
     #[test]
@@ -1324,7 +1394,7 @@ mod tests {
             (1.4, Press::Heavy),
             (2.4, Press::Heavy),
         ];
-        let d = run_in(ds_moves(), &mut a, &presses, Vec3::ZERO, 3.6);
+        let d = run_in(weapon_clips(), &mut a, &presses, Vec3::ZERO, 3.6);
         let kinds: Vec<_> = d
             .iter()
             .filter_map(|(_, d)| match d {
@@ -1347,7 +1417,7 @@ mod tests {
             (0.9, Press::Heavy),
             (2.4, Press::Attack),
         ];
-        let d = run_in(ds_moves(), &mut a, &presses, Vec3::ZERO, 3.5);
+        let d = run_in(weapon_clips(), &mut a, &presses, Vec3::ZERO, 3.5);
         let kinds: Vec<_> = d
             .iter()
             .filter_map(|(_, d)| match d {
@@ -1367,7 +1437,7 @@ mod tests {
         // Pressed at 0.7 s into R1-1, the roll lands when the flag opens, at 0.9 s.
         let mut a = Action::default();
         let d = run_in(
-            ds_moves(),
+            weapon_clips(),
             &mut a,
             &[(0.0, Press::Attack), (0.7, Press::Evade)],
             Vec3::NEG_Z,
@@ -1381,7 +1451,7 @@ mod tests {
         // Pressed at 0.5 s, the press is 0.4 s old by then, past the buffer: no roll.
         let mut a = Action::default();
         let d = run_in(
-            ds_moves(),
+            weapon_clips(),
             &mut a,
             &[(0.0, Press::Attack), (0.5, Press::Evade)],
             Vec3::NEG_Z,
@@ -1402,7 +1472,7 @@ mod tests {
                 &s,
                 StepInput {
                     stick,
-                    moves: ds_moves(),
+                    moves: weapon_clips(),
                     ..input(press, true)
                 },
                 DT,
@@ -1439,7 +1509,7 @@ mod tests {
 
     #[test]
     fn a_light_press_in_a_ds_roll_is_the_roll_attack() {
-        let ds_roll = EvadeSpec {
+        let evade_clips = EvadeSpec {
             duration: 2.0,
             travel: 2.0,
             distance: 4.5,
@@ -1453,10 +1523,10 @@ mod tests {
                 a,
                 &s,
                 StepInput {
-                    roll: ds_roll,
-                    ds_roll: true,
+                    roll: evade_clips,
+                    evade_clips: true,
                     stick: Vec3::NEG_Z,
-                    moves: ds_moves(),
+                    moves: weapon_clips(),
                     ..input(press, true)
                 },
                 DT,
@@ -1484,8 +1554,8 @@ mod tests {
         // With no roll attack in the moveset it is the first light hit.
         let mut a = Action::default();
         let plain = |press| StepInput {
-            roll: ds_roll,
-            ds_roll: true,
+            roll: evade_clips,
+            evade_clips: true,
             ..input(press, true)
         };
         step_action(
@@ -1542,7 +1612,13 @@ mod tests {
     #[test]
     fn a_reel_takes_a_buffered_attack_from_its_attack_time() {
         let mut a = reeling();
-        let d = run_in(ds_moves(), &mut a, &[(0.4, Press::Attack)], Vec3::ZERO, 1.2);
+        let d = run_in(
+            weapon_clips(),
+            &mut a,
+            &[(0.4, Press::Attack)],
+            Vec3::ZERO,
+            1.2,
+        );
         let (t, what) = d[0];
         assert_eq!(what, swing(MoveKind::R1(0), false), "{d:?}");
         assert!((0.6 - DT..0.6 + 2.0 * DT).contains(&t), "started at {t}");
@@ -1551,7 +1627,13 @@ mod tests {
     #[test]
     fn a_reel_takes_a_buffered_evade_from_its_evade_time() {
         let mut a = reeling();
-        let d = run_in(ds_moves(), &mut a, &[(0.3, Press::Evade)], Vec3::ZERO, 1.2);
+        let d = run_in(
+            weapon_clips(),
+            &mut a,
+            &[(0.3, Press::Evade)],
+            Vec3::ZERO,
+            1.2,
+        );
         let (t, what) = d[0];
         assert_eq!(what, Decision::Evade(EvadeKind::Backstep), "{d:?}");
         assert!((0.5 - DT..0.5 + 2.0 * DT).contains(&t), "started at {t}");
@@ -1560,12 +1642,12 @@ mod tests {
     #[test]
     fn a_pushed_stick_ends_a_reel_at_its_movement_time_else_it_ends_at_its_duration() {
         let mut a = reeling();
-        let d = run_in(ds_moves(), &mut a, &[], Vec3::X, 1.5);
+        let d = run_in(weapon_clips(), &mut a, &[], Vec3::X, 1.5);
         assert_eq!(d.len(), 1, "{d:?}");
         assert_eq!(d[0].1, Decision::Ended);
         assert!((0.7 - DT..0.7 + 2.0 * DT).contains(&d[0].0), "{d:?}");
         let mut a = reeling();
-        let d = run_in(ds_moves(), &mut a, &[], Vec3::ZERO, 1.5);
+        let d = run_in(weapon_clips(), &mut a, &[], Vec3::ZERO, 1.5);
         assert_eq!(d.len(), 1, "{d:?}");
         assert!((1.0 - DT..1.0 + 2.0 * DT).contains(&d[0].0), "{d:?}");
         assert!(!a.owns_body());
@@ -1617,5 +1699,102 @@ mod tests {
         assert!(a.is_dead(), "a dead body takes no press");
         a.die();
         assert_eq!((a.death, a.dead_t), (None, 0.0));
+    }
+
+    fn cast_spec() -> CastSpec {
+        CastSpec {
+            duration: 1.7,
+            release: 0.77,
+            recover: 1.23,
+        }
+    }
+
+    #[test]
+    fn a_cast_commits_the_body_until_its_recovery_then_takes_a_roll() {
+        let mut a = Action::default();
+        assert!(a.begin_cast(133, cast_spec(), None));
+        assert!(matches!(a.state, ActionState::Cast(c) if c.spell == 133 && !c.released()));
+        let s = full();
+        // A roll pressed in the wind-up waits in the buffer; the body stays in the cast.
+        assert_eq!(
+            step_action(&mut a, &s, input(Some(Press::Evade), true), 0.3),
+            Decision::None
+        );
+        assert!(matches!(a.state, ActionState::Cast(_)));
+        // The release passes; still committed.
+        step_action(&mut a, &s, input(None, true), 0.5);
+        assert!(matches!(a.state, ActionState::Cast(c) if c.released() && !c.cancellable()));
+        // From the recovery a press starts the roll.
+        assert!(matches!(
+            step_action(&mut a, &s, input(Some(Press::Evade), true), 0.5),
+            Decision::Evade(_)
+        ));
+    }
+
+    #[test]
+    fn a_cast_ends_at_its_duration_and_a_blow_ends_it_at_once() {
+        let mut a = Action::default();
+        assert!(a.begin_cast(133, cast_spec(), None));
+        assert_eq!(
+            step_action(&mut a, &full(), input(None, true), 2.0),
+            Decision::Ended
+        );
+        assert_eq!(a.state, ActionState::Idle);
+        assert!(a.begin_cast(133, cast_spec(), None));
+        a.stagger(0.4);
+        assert!(
+            matches!(a.state, ActionState::Stagger { .. }),
+            "the cast is gone"
+        );
+    }
+
+    #[test]
+    fn a_cast_cannot_start_in_a_swing_that_is_not_yet_cancellable() {
+        let mut a = Action::default();
+        let swing = Swing {
+            t: 0.1,
+            kind: MoveKind::R1(0),
+            spec: weapon_clips().r1[0],
+            reference: true,
+            serial: 1,
+        };
+        a.state = ActionState::Attack(swing);
+        assert!(!a.can_cast());
+        assert!(!a.begin_cast(133, cast_spec(), None));
+        assert!(matches!(a.state, ActionState::Attack(_)), "nothing changed");
+        a.state = ActionState::Dead;
+        assert!(!a.can_cast());
+    }
+
+    #[test]
+    fn every_cast_has_its_own_serial_so_a_release_happens_once_per_cast() {
+        let mut a = Action::default();
+        a.begin_cast(133, cast_spec(), None);
+        let first = match a.state {
+            ActionState::Cast(c) => c.serial,
+            _ => unreachable!(),
+        };
+        a.state = ActionState::Idle;
+        a.begin_cast(116, cast_spec(), None);
+        let second = match a.state {
+            ActionState::Cast(c) => c.serial,
+            _ => unreachable!(),
+        };
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn a_cast_can_follow_a_swing_once_its_chain_window_is_open() {
+        let mut a = Action::default();
+        let spec = weapon_clips().r1[0];
+        a.state = ActionState::Attack(Swing {
+            t: spec.chain_from + 0.01,
+            kind: MoveKind::R1(0),
+            spec,
+            reference: true,
+            serial: 1,
+        });
+        assert!(a.can_cast(), "a swing's chain window takes a cast");
+        assert!(a.begin_cast(133, cast_spec(), None));
     }
 }

@@ -19,16 +19,16 @@ impl Kind {
     }
     pub fn source(self) -> &'static str {
         match self {
-            Self::Ground => "a00_7520",
-            Self::Open => "a00_7521",
-            Self::Take => "a00_7522",
+            Self::Ground => "body_pickup_ground",
+            Self::Open => "body_chest_open",
+            Self::Take => "body_pickup_take",
         }
     }
 }
 pub struct Clip {
     pub kind: Kind,
     pub wow: wscl::Clip,
-    pub ds: wscl::Clip,
+    pub reference: wscl::Clip,
     pub commit: f32,
 }
 #[derive(Resource)]
@@ -50,7 +50,7 @@ impl Kit {
         }
         // Reuse strict source metadata checks without binding interaction publication to a full
         // combat re-extraction. The common cache is required by the avatar pose pipeline too.
-        crate::dsclip::checked_manifest(dir)?;
+        crate::motion_clip::checked_manifest(dir)?;
         let mut clips = Vec::new();
         for kind in Kind::ALL {
             let name = text
@@ -66,8 +66,8 @@ impl Kit {
             if name != kind.source() {
                 return Err(format!("wrong clip for {}: {name}", kind.name()));
             }
-            let wow = crate::dsclip::read_clip(dir, "human_male", name)?;
-            let ds = crate::dsclip::read_clip(dir, "c0000", name)?;
+            let wow = crate::motion_clip::read_clip(dir, "human_male", name)?;
+            let reference = crate::motion_clip::read_clip(dir, "human_reference", name)?;
             let commit = wow
                 .windows(87)
                 .next()
@@ -89,7 +89,7 @@ impl Kit {
             clips.push(Clip {
                 kind,
                 wow,
-                ds,
+                reference,
                 commit,
             });
         }

@@ -46,10 +46,12 @@ struct DiedText;
 pub fn plugin(app: &mut App) {
     app.add_message::<Respawned>()
         .init_resource::<Death>()
-        // The plain text only without the Dark Souls banner (`hud::banner`).
+        // Plain text only when neither the native nor the legacy banner is available.
         .add_systems(
             OnEnter(Phase::Playing),
-            spawn_text.run_if(not(resource_exists::<crate::hud::HudArt>)),
+            spawn_text.run_if(not(
+                resource_exists::<crate::hud::HudArt>.or(crate::hud::theme::enabled)
+            )),
         )
         .add_systems(
             Update,
@@ -118,6 +120,10 @@ fn suffer(
         if action.is_dead() {
             continue;
         }
+        let hurt = PlayerHurt {
+            damage: hurt.damage * action.training.damage_taken,
+            ..*hurt
+        };
         hp.cur = (hp.cur - hurt.damage).max(0.0);
         // Which way the blow pushes the body, in its own frame: (forward, left).
         let away = foes
@@ -169,7 +175,8 @@ fn suffer(
                     hurt.knock * 0.15,
                 );
             }
-        } else if !poise.hit(hurt.poise) {
+        } else if hurt.level == 0 || !poise.hit(hurt.poise) {
+            // Level 0 is a bite that holds on (a latched spider chews): it hurts and never flinches.
             info!(
                 "player: struck for {:.0} by {}, health {:.0}/{:.0}, poise holds ({:.0}/{:.0}): no flinch",
                 hurt.damage, hurt.from, hp.cur, hp.max, poise.left, poise.max
@@ -236,12 +243,17 @@ fn suffer(
     }
 }
 
-/// After [`RESPAWN_AFTER`], the player stands at the spawn point, whole.
+/// Return to the bound memorial, or the initial spawn. Keep the death cover and the dead body
+/// held while the destination streams; health and the Respawned event are restored only on ground.
 #[allow(clippy::type_complexity)]
 fn respawn(
     real: Res<Time<bevy::time::Real>>,
     mut death: ResMut<Death>,
-    spawn: Option<Res<SpawnPoint>>,
+    mut spawn: Option<ResMut<SpawnPoint>>,
+    binding: Res<crate::soulbind::Binding>,
+    progress: Option<Res<benilla_world::terrain_stream::WorldLoadProgress>>,
+    collide: benilla_world::collision::WorldCollision,
+    mut returning: Local<bool>,
     mut respawned: MessageWriter<Respawned>,
     mut avatar: Query<
         (
@@ -256,7 +268,7 @@ fn respawn(
         With<Avatar>,
     >,
 ) {
-    let (Some(at), Some(spawn)) = (death.at, spawn) else {
+    let (Some(at), Some(spawn)) = (death.at, spawn.as_deref_mut()) else {
         return;
     };
     if real.elapsed_secs() < at + RESPAWN_AFTER {
@@ -267,17 +279,49 @@ fn respawn(
     else {
         return;
     };
-    death.at = None;
-    xf.translation = spawn.0;
-    xf.rotation = Quat::IDENTITY;
+    // The nearest graveyard bound at, from where the body fell.
+    let site = binding.respawn_site(xf.translation);
+    let destination = site.map_or(spawn.0, |s| s.arrival());
+    xf.translation = destination;
+    xf.rotation = site.map_or(Quat::IDENTITY, |s| s.facing());
     *m = Motor::default();
     *intent = MoveIntent::default();
+    if site.is_some() {
+        if !*returning {
+            info!(
+                "soulbind: returning to {:?}; waiting for resident ground",
+                binding.bound
+            );
+            *returning = true;
+        }
+        let wow = benilla_assets::coords::bevy_to_wow(destination);
+        let tile = benilla_formats::world_to_tile(wow[0], wow[1]);
+        let resident = progress.as_ref().is_some_and(|p| {
+            p.presentable() && p.focus_tile == Some((tile.0 as i32, tile.1 as i32))
+        });
+        if !resident {
+            return;
+        }
+        let Some(y) = crate::settle::snap_to_ground(&collide, destination)
+            .filter(|y| (*y - destination.y).abs() <= crate::npc::GROUND_TOLERANCE)
+        else {
+            return;
+        };
+        xf.translation.y = y;
+        spawn.0 = xf.translation;
+    }
+    *returning = false;
+    death.at = None;
     *hp = Health::full(hp.max);
     *st = Stamina::full(st.max);
     *action = Action::default();
     *poise = Poise::new(poise.max);
     respawned.write(Respawned);
-    info!("player: respawns at the spawn point");
+    info!(
+        "player: respawns at {} ({:?})",
+        site.map_or("the spawn point", |s| s.name.as_str()),
+        xf.translation
+    );
 }
 
 fn spawn_text(mut commands: Commands) {
@@ -324,5 +368,105 @@ fn fade_text(
         if let Ok(mut color) = colors.get_mut(c) {
             color.0.set_alpha(k);
         }
+    }
+}
+
+#[cfg(test)]
+mod soul_respawn_tests {
+    use super::*;
+    use benilla_world::terrain_stream::WorldLoadProgress;
+    use bevy::ecs::system::RunSystemOnce;
+
+    fn fixture(ground: bool) -> (App, Entity, Vec3) {
+        let mut app = crate::motor::testkit::world_from_profile(if ground {
+            &[(-10.0, 0.0), (10.0, 0.0)]
+        } else {
+            &[(100.0, 0.0), (110.0, 0.0)]
+        });
+        let site = crate::soulbind::Site {
+            id: 1,
+            name: "Test Graveyard".into(),
+            at: Vec3::ZERO,
+            yaw: 0.0,
+        };
+        let destination = site.arrival();
+        let mut binding = crate::soulbind::Binding::default();
+        binding.sites = vec![site];
+        binding.bound = Some(1);
+        app.insert_resource(binding)
+            .insert_resource(Death { at: Some(0.0) })
+            .insert_resource(SpawnPoint(Vec3::new(100.0, 0.0, 100.0)))
+            .insert_resource(WorldLoadProgress::default())
+            .add_message::<Respawned>();
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_secs(10));
+        let mut action = Action::default();
+        action.die();
+        let mut hp = Health::full(150.0);
+        hp.cur = 0.0;
+        let body = app
+            .world_mut()
+            .spawn((
+                Avatar,
+                Transform::from_xyz(500.0, 0.0, 500.0),
+                Motor::default(),
+                MoveIntent::default(),
+                hp,
+                Stamina::full(200.0),
+                action,
+                Poise::new(20.0),
+            ))
+            .id();
+        (app, body, destination)
+    }
+
+    fn resident(app: &mut App, destination: Vec3) {
+        let wow = benilla_assets::coords::bevy_to_wow(destination);
+        let tile = benilla_formats::world_to_tile(wow[0], wow[1]);
+        *app.world_mut().resource_mut::<WorldLoadProgress>() = WorldLoadProgress {
+            scene_ready: true,
+            focus_tile: Some((tile.0 as i32, tile.1 as i32)),
+            ..default()
+        };
+    }
+
+    #[test]
+    fn soul_respawn_holds_death_until_destination_terrain_and_ground_exist() {
+        let (mut app, body, destination) = fixture(false);
+        app.world_mut().run_system_once(respawn).unwrap();
+        assert_eq!(
+            app.world().get::<Transform>(body).unwrap().translation,
+            destination
+        );
+        assert!(app.world().resource::<Death>().at.is_some());
+        assert_eq!(app.world().get::<Health>(body).unwrap().cur, 0.0);
+        assert!(app.world().resource::<Messages<Respawned>>().is_empty());
+        resident(&mut app, destination);
+        app.world_mut().run_system_once(respawn).unwrap();
+        assert!(
+            app.world().resource::<Death>().at.is_some(),
+            "residency without a collider is unsafe"
+        );
+        assert!(app.world().resource::<Messages<Respawned>>().is_empty());
+    }
+
+    #[test]
+    fn soul_respawn_restores_health_at_the_bound_graveyard_once_ready() {
+        let (mut app, body, destination) = fixture(true);
+        resident(&mut app, destination);
+        app.world_mut().run_system_once(respawn).unwrap();
+        assert!(app.world().resource::<Death>().at.is_none());
+        let hp = app.world().get::<Health>(body).unwrap();
+        assert_eq!(hp.cur, hp.max);
+        assert!(!app.world().get::<Action>(body).unwrap().is_dead());
+        assert_eq!(
+            app.world().get::<Transform>(body).unwrap().translation,
+            destination
+        );
+        assert_eq!(app.world().resource::<SpawnPoint>().0, destination);
+        assert_eq!(app.world().resource::<Messages<Respawned>>().len(), 1);
+        app.world_mut().run_system_once(respawn).unwrap();
+        assert_eq!(app.world().resource::<Messages<Respawned>>().len(), 1);
     }
 }

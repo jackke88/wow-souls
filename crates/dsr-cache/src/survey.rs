@@ -15,6 +15,12 @@ use crate::{dsr, params};
 const BULLET: i32 = 2;
 
 pub fn run(dsr_dir: &Path, chr: &str, npc: Option<i32>) -> Result<()> {
+    if std::env::var_os("WOWSOULS_NAMES").is_some() {
+        for (id, name) in crate::names::npc_names(dsr_dir)? {
+            println!("{id}	{name}");
+        }
+        return Ok(());
+    }
     let c = dsr::load_chr(dsr_dir, chr)?;
     let sk = &c.skeleton;
     println!(
@@ -46,6 +52,19 @@ pub fn run(dsr_dir: &Path, chr: &str, npc: Option<i32>) -> Result<()> {
             "NpcParam {id}: hp {} poise {} variation {} think {} souls {}",
             n.hp, n.poise, n.variation, n.think, n.get_soul
         );
+        // The game's own name for it: `NPC_name_.fmg` is keyed by the chr number (c2250 is 2250);
+        // `NpcParam.nameId` is 0 for every creature of the install.
+        if let Some(num) = chr.strip_prefix('c').and_then(|n| n.parse::<i64>().ok()) {
+            match crate::names::npc_names(dsr_dir) {
+                Ok(names) => println!(
+                    "  game name: {}",
+                    names
+                        .get(&num)
+                        .map_or("(not in the name table)", String::as_str)
+                ),
+                Err(e) => println!("  game name: names unreadable: {e:#}"),
+            }
+        }
         match i32::try_from(n.think).ok().map(|t| params.think(t)) {
             Some(Ok(t)) => println!(
                 "  think distances (DS m): near {:.1} mid {:.1} far {:.1} out {:.1}",
@@ -105,6 +124,34 @@ pub fn run(dsr_dir: &Path, chr: &str, npc: Option<i32>) -> Result<()> {
                 e.end,
                 p.join(" ")
             );
+            // The bullet's behavior judge is its third parameter.
+            let (Some(v), Some(judge)) = (variation, e.param_i32(2)) else {
+                continue;
+            };
+            match params.npc_bullet(v, judge) {
+                Ok(b) => {
+                    let r = b.row;
+                    print!(
+                        "      bullet {} hits as {} radius {:.2} max {:.2} speed {:.1} life {:.2}",
+                        b.bullet, b.hit_bullet, r.radius, r.radius_max, r.max_speed, r.life
+                    );
+                    match b.attack {
+                        Some(a) => println!(
+                            "  phys {} magic {} poise {} level {} radius {:.2} knock {:.2}",
+                            a.phys,
+                            params
+                                .npc_atk_magic(r.atk_id as i32)
+                                .map_or("?".into(), |m| m.to_string()),
+                            a.poise,
+                            a.level,
+                            a.radius,
+                            a.knock
+                        ),
+                        None => println!("  (no attack row)"),
+                    }
+                }
+                Err(e) => println!("      ({e:#})"),
+            }
         }
     }
     Ok(())

@@ -1,0 +1,43 @@
+# project-animations 1; source-derived DSR reference data
+wscl-cache 6
+extractor 5
+class axe
+weapon 701000
+chain 2
+two-handed 0
+grip-bones 97 56
+base-damage 95 78
+idle body_idle
+guard 0.55 36 1
+guardclip raise shield_guard_raise
+guardclip hold shield_guard_hold
+guardclip lower shield_guard_lower
+move r1_1 axe_light_1 judge 0 stamina 25 mult 1 level 2 poise 35 stop 0.08 knock 0.9 radius 0.35
+hit r1_1 0 0.6333333 0.76666665 1 2 35 0.08 0.9 0.35
+move r1_2 axe_light_2 judge 10 stamina 25 mult 1 level 2 poise 35 stop 0.08 knock 0.65 radius 0.35
+hit r1_2 10 0.6333333 0.76666665 1 2 35 0.08 0.65 0.35
+move r1_3 axe_light_3 judge 10 stamina 25 mult 1 level 2 poise 35 stop 0.08 knock 0.65 radius 0.35
+hit r1_3 10 0.6333333 0.76666665 1 2 35 0.08 0.65 0.35
+move r2_1 axe_heavy_1 judge 100 stamina 50 mult 1.25 level 3 poise 42 stop 0.08 knock 1 radius 0.35
+hit r2_1 100 0.8333333 0.96666664 1.25 3 42 0.08 1 0.35
+move r2_2 axe_heavy_2 judge 110 stamina 50 mult 1.25 level 3 poise 42 stop 0.08 knock 1 radius 0.35
+hit r2_2 110 0.8666667 1 1.25 3 42 0.08 1 0.35
+move roll_attack axe_rolling_attack judge 540 stamina 25 mult 0.9 level 2 poise 35 stop 0.08 knock 1.15 radius 0.35
+hit roll_attack 540 0.5 0.6333333 0.9 2 35 0.08 1.15 0.35
+grip -0.37716627 -0.20852101 -0.9023666 0 1 0
+# imported-source 257161 1527186972 c0000_a00_hi.anibnd.dcx
+# imported-source 1509755 1527186972 c0000_a00_lo.anibnd.dcx
+# imported-source 2323464 1527186972 c0000_a00_md.anibnd.dcx
+# imported-source 778083 1527186972 c0000_a0x.anibnd.dcx
+# imported-source 1713982 1527186972 c0000_a1x.anibnd.dcx
+# imported-source 2241659 1527186972 c0000_a2x.anibnd.dcx
+# imported-source 1929705 1527186972 c0000_a3x.anibnd.dcx
+# imported-source 1106895 1527186972 c0000_a4x.anibnd.dcx
+# imported-source 763242 1527186972 c0000_a5x.anibnd.dcx
+# imported-source 474701 1527186972 c0000_a6x.anibnd.dcx
+# imported-source 322376 1527186972 c0000_a7x.anibnd.dcx
+# imported-source 364753 1527186972 c0000_a8x.anibnd.dcx
+# imported-source 1763182 1527186972 c0000_a9x.anibnd.dcx
+# imported-source 913588 1527186972 human_reference.anibnd.dcx
+# imported-source 498489 1527186972 GameParam.parambnd.dcx
+# imported-source 60242 1527186972 paramdef.paramdefbnd.dcx

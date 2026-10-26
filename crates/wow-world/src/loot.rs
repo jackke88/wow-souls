@@ -20,9 +20,48 @@ pub fn roll(
     seed: u64,
     eligible: &BTreeSet<u32>,
 ) -> Result<Vec<ItemCount>> {
+    roll_with(rows, kind, table, seed, eligible, Chances::Wow)
+}
+
+/// How a roll treats the table's chances.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Chances {
+    /// The table's own percentages.
+    Wow,
+    /// Everything drops (2026-10-17, the user: "Jag vill ha 100% drop rate på allt"): every row outside a
+    /// group (and every reference) is awarded, every group gives one of its rows, quest items whenever the
+    /// quest log asks for them. A group's pick still follows its rows' weights.
+    Always,
+    /// Quest items always drop when the quest log asks for them (2026-10-18, the user: "drop rates ska
+    /// bara vara 100% på quest items - inte på allt"); everything else at the table's own chance.
+    QuestItems,
+}
+
+/// [`roll`] with the chances chosen.
+pub fn roll_with(
+    rows: &[LootRow],
+    kind: LootKind,
+    table: u32,
+    seed: u64,
+    eligible: &BTreeSet<u32>,
+    chances: Chances,
+) -> Result<Vec<ItemCount>> {
     let mut items = BTreeMap::<u32, u32>::new();
-    process(rows, kind, table, &mut Dice(seed), eligible, &mut items, 0)?;
+    let mut roll = Roll {
+        dice: Dice(seed),
+        eligible,
+        always: chances == Chances::Always,
+        quests_always: chances == Chances::QuestItems,
+    };
+    process(rows, kind, table, &mut roll, &mut items, 0)?;
     Ok(items.into_iter().collect())
+}
+
+struct Roll<'a> {
+    dice: Dice,
+    eligible: &'a BTreeSet<u32>,
+    always: bool,
+    quests_always: bool,
 }
 /// The item a boss or a rare is guaranteed the first time it dies: of the table's non-quest rows
 /// (reference groups expanded), gear (a weapon or armor that goes on a slot) before anything else, then
@@ -79,8 +118,7 @@ fn process(
     rows: &[LootRow],
     kind: LootKind,
     table: u32,
-    dice: &mut Dice,
-    eligible: &BTreeSet<u32>,
+    roll: &mut Roll,
     items: &mut BTreeMap<u32, u32>,
     depth: usize,
 ) -> Result<()> {
@@ -91,19 +129,30 @@ fn process(
             row.chance.is_finite() && row.chance.abs() <= 100.0,
             "invalid loot chance"
         );
-        if row.chance < 0.0 && !eligible.contains(&row.item) {
+        if row.chance < 0.0 && !roll.eligible.contains(&row.item) {
             continue;
         }
         if row.group == 0 || row.min_or_ref < 0 {
-            if dice.unit() * 100.0 < row.chance.abs() {
-                award(rows, row, dice, eligible, items, depth)?;
+            let quest = row.chance < 0.0 && roll.quests_always;
+            if roll.always || quest || roll.dice.unit() * 100.0 < row.chance.abs() {
+                award(rows, row, roll, items, depth)?;
             }
         } else {
             groups.entry(row.group).or_default().push(row);
         }
     }
     for group in groups.values() {
-        let mut draw = dice.unit() * 100.0;
+        // Always: the draw spans only what the rows give, so it never falls past them all.
+        let explicit: f32 = group.iter().map(|r| r.chance.abs()).sum();
+        let has_equal = group.iter().any(|r| r.chance == 0.0);
+        let span = if !roll.always {
+            100.0
+        } else if has_equal {
+            explicit.max(100.0)
+        } else {
+            explicit
+        };
+        let mut draw = roll.dice.unit() * span;
         let mut selected = None;
         for row in group.iter().filter(|r| r.chance != 0.0) {
             draw -= row.chance.abs();
@@ -115,11 +164,14 @@ fn process(
         if selected.is_none() {
             let equal: Vec<_> = group.iter().filter(|r| r.chance == 0.0).collect();
             if !equal.is_empty() {
-                selected = Some(*equal[(dice.unit() * equal.len() as f32) as usize]);
+                selected = Some(*equal[(roll.dice.unit() * equal.len() as f32) as usize]);
+            } else if roll.always {
+                // Rounding at the very end of the span: the last row.
+                selected = group.last().copied();
             }
         }
         if let Some(row) = selected {
-            award(rows, row, dice, eligible, items, depth)?;
+            award(rows, row, roll, items, depth)?;
         }
     }
     Ok(())
@@ -127,8 +179,7 @@ fn process(
 fn award(
     rows: &[LootRow],
     row: &LootRow,
-    dice: &mut Dice,
-    eligible: &BTreeSet<u32>,
+    roll: &mut Roll,
     items: &mut BTreeMap<u32, u32>,
     depth: usize,
 ) -> Result<()> {
@@ -139,8 +190,7 @@ fn award(
                 rows,
                 LootKind::Reference,
                 row.min_or_ref.unsigned_abs(),
-                dice,
-                eligible,
+                roll,
                 items,
                 depth + 1,
             )?;
@@ -152,7 +202,7 @@ fn award(
             "invalid loot count/item"
         );
         let span = row.max_count - min;
-        let count = min + (dice.unit() * (span as f32 + 1.0)) as u32;
+        let count = min + (roll.dice.unit() * (span as f32 + 1.0)) as u32;
         let total = items
             .get(&row.item)
             .copied()
@@ -177,6 +227,67 @@ mod tests {
             max_count: 1,
         }
     }
+    #[test]
+    fn quest_items_always_drop_and_the_rest_keep_their_chance() {
+        let rows = [row(1, 0.5, 0), row(2, -3.0, 0)];
+        let mut normal = 0;
+        for seed in 0..200 {
+            let got = roll_with(
+                &rows,
+                LootKind::Creature,
+                1,
+                seed,
+                &BTreeSet::from([2]),
+                Chances::QuestItems,
+            )
+            .unwrap();
+            assert!(
+                got.iter().any(|(i, _)| *i == 2),
+                "the quest item every time"
+            );
+            normal += usize::from(got.iter().any(|(i, _)| *i == 1));
+        }
+        assert!(normal < 20, "the 0.5 % item stays rare: {normal}");
+    }
+
+    #[test]
+    fn always_awards_every_loose_row_and_one_of_every_group() {
+        let rows = [
+            row(1, 0.5, 0),
+            row(2, -3.0, 0),
+            row(3, 2.0, 1),
+            row(4, 1.0, 1),
+            row(5, 0.0, 2),
+            row(6, 0.0, 2),
+        ];
+        for seed in 0..64 {
+            let got = roll_with(
+                &rows,
+                LootKind::Creature,
+                1,
+                seed,
+                &BTreeSet::from([2]),
+                Chances::Always,
+            )
+            .unwrap();
+            let has = |e: u32| got.iter().any(|(i, _)| *i == e);
+            assert!(has(1) && has(2), "{got:?}");
+            assert_eq!([3, 4].iter().filter(|&&e| has(e)).count(), 1, "{got:?}");
+            assert_eq!([5, 6].iter().filter(|&&e| has(e)).count(), 1, "{got:?}");
+        }
+        // A quest item nobody asks for still stays away.
+        let got = roll_with(
+            &rows,
+            LootKind::Creature,
+            1,
+            7,
+            &BTreeSet::new(),
+            Chances::Always,
+        )
+        .unwrap();
+        assert!(!got.iter().any(|(i, _)| *i == 2));
+    }
+
     #[test]
     fn quest_only_drops_require_an_eligible_quest_and_normal_drops_do_not() {
         let rows = [row(1, 100.0, 0), row(2, -100.0, 0)];

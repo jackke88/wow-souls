@@ -2,24 +2,29 @@
 //! state, achieved speed, gait, lock) and, at the bottom left, a help line (the keys, and the
 //! gamepad the game sees: [`crate::pad`]). ASCII only, the default font has no `·`. F3 hides both.
 //!
-//! The HUD proper is Dark Souls' own, drawn from `cache/dsr/hud` ([`art`]) in a 1280 x 720
-//! layout space; without that cache [`plain`] draws the bars as coloured rectangles.
+//! The native HUD uses a 1280 x 720 layout, worn meters and a camera-relative quest return compass.
+//! Retired UI/DSR-cache selectors cannot enable source-game art. `WOWSOULS_HUD=0` selects plain meters.
 
+mod area_title;
 pub mod art;
 mod banner;
 mod bars;
 mod boss;
+mod compass;
 mod enemy;
 pub mod font;
 mod lock;
 mod plain;
 pub mod souls;
+pub(crate) mod theme;
+mod vitals;
 mod xp;
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 pub use art::{HudArt, LRect};
+pub(crate) use vitals::VitalsArt;
 
 use crate::avatar::Avatar;
 use crate::camera::CamMode;
@@ -147,6 +152,10 @@ pub(crate) fn clip_sprite(
 }
 
 pub fn plugin(app: &mut App) {
+    theme::plugin(app);
+    vitals::plugin(app);
+    compass::plugin(app);
+    area_title::plugin(app);
     plain::plugin(app);
     bars::plugin(app);
     font::plugin(app);
@@ -156,8 +165,7 @@ pub fn plugin(app: &mut App) {
     boss::plugin(app);
     lock::plugin(app);
     banner::plugin(app);
-    app.add_systems(Startup, load_art)
-        .add_systems(OnEnter(Phase::Playing), spawn)
+    app.add_systems(OnEnter(Phase::Playing), spawn)
         .add_systems(
             Update,
             (toggle, update, update_help).run_if(in_state(Phase::Playing)),
@@ -166,28 +174,12 @@ pub fn plugin(app: &mut App) {
             Update,
             (fit_ui_scale, keep_dev_text_size)
                 .chain()
-                .run_if(resource_exists::<HudArt>),
+                .run_if(has_layout),
         );
 }
 
-/// Loads the Dark Souls art once; without it the plain HUD stays, with one warning.
-fn load_art(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
-    if std::env::var("WOWSOULS_HUD").is_ok_and(|v| v.trim() == "0") {
-        info!("hud: WOWSOULS_HUD=0, the plain HUD");
-        return;
-    }
-    let dir = crate::dsclip::cache_dir().join("hud");
-    match HudArt::load(&dir, &mut images) {
-        Ok(art) => {
-            info!(
-                "hud: Dark Souls art loaded ({} sprites, {} glyphs)",
-                art.m.sprites.len(),
-                art.m.font.glyphs.len()
-            );
-            commands.insert_resource(art);
-        }
-        Err(why) => warn!("hud: no Dark Souls art ({why}); the plain HUD stays"),
-    }
+fn has_layout(art: Option<Res<HudArt>>, vitals: Option<Res<VitalsArt>>) -> bool {
+    art.is_some() || vitals.is_some()
 }
 
 /// The developer lines are plain text, not layout: undo the HUD's scale on their size so a bigger
@@ -220,7 +212,7 @@ fn fit_ui_scale(windows: Query<&Window, With<PrimaryWindow>>, mut ui: ResMut<UiS
 
 fn spawn(mut commands: Commands) {
     // A recording shows the game, not its developer lines.
-    let dev = if crate::record::active() {
+    let dev = if theme::enabled() || crate::record::active() {
         Visibility::Hidden
     } else {
         Visibility::Inherited

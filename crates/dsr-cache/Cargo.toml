@@ -1,25 +1,32 @@
 [package]
 name = "dsr-cache"
-version.workspace = true
-edition.workspace = true
+version = "0.1.0"
+edition = "2021"
 # Links dsr-formats (GPL-3.0-or-later): see docs/PROVENANCE.md.
 license = "GPL-3.0-or-later"
 description = "wow-souls-dsr: reads Dark Souls Remastered data, retargets it to WoW skeletons, writes cache/dsr"
 
-[lints]
-workspace = true
+# Optional developer tool, outside the production workspace.
+[workspace]
+resolver = "2"
+
+[lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"
 
 [[bin]]
 name = "wow-souls-dsr"
 path = "src/main.rs"
 
 [dependencies]
-anyhow.workspace = true
-glam.workspace = true
-dsr-formats.workspace = true
-wscl.workspace = true
-benilla-formats.workspace = true
-benilla-m2.workspace = true
+anyhow = "1.0.102"
+glam = "0.31"
+dsr-formats = { path = "../dsr-formats" }
+wscl = { path = "../wscl" }
+benilla-formats = { path = "../../vendor/benilla/crates/benilla-formats", default-features = false }
+benilla-m2 = { path = "../../vendor/benilla/crates/benilla-m2" }
 # The HUD cache: DXT decode and PNG files (both already in Cargo.lock through benilla and Bevy).
 texpresso = "2"
 png = "0.18"
+# `setup` checks every locally built clip against the developer's payload hash.
+sha2 = "0.10"

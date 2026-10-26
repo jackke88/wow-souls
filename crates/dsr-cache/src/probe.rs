@@ -15,6 +15,33 @@ use crate::{dsr, monster, retarget, wow};
 pub const PLAYER: &str = "player";
 
 pub fn run(dsr_dir: &Path, wow_dir: &Path, kit_name: &str, clips: &[String]) -> Result<()> {
+    // `PROBE_CHR=cNNNN PROBE_BONES=a,b`: DS bone paths (model space, minus the pelvis, every third frame) of any
+    // chr's clips, no kit needed: which bone strikes in a candidate source (a paw, a jaw) and where it goes.
+    if let (Ok(chr), Ok(list)) = (std::env::var("PROBE_CHR"), std::env::var("PROBE_BONES")) {
+        // The player (`c0000`) has its own archives.
+        let source = if chr == "c0000" {
+            dsr::load(dsr_dir)?
+        } else {
+            dsr::load_chr(dsr_dir, &chr)?
+        };
+        let pelvis = source.skeleton.bone("Pelvis").context("no Pelvis")?;
+        for name in clips {
+            let clip = dsr::decode(&source, name)?;
+            for (i, locals) in clip.frames.iter().enumerate().step_by(3) {
+                let ms = retarget::model_space(&source.skeleton.parents, locals)?;
+                let s: Vec<String> = list
+                    .split(',')
+                    .filter_map(|n| source.skeleton.bone(n))
+                    .map(|b| {
+                        let v = ms[b].0 - ms[pelvis].0;
+                        format!("({:+.2} {:+.2} {:+.2})", v.x, v.y, v.z)
+                    })
+                    .collect();
+                println!("  {name} {:.2}s {}", i as f32 / clip.fps, s.join(" "));
+            }
+        }
+        return Ok(());
+    }
     let (source, skel, rig) = if kit_name == PLAYER {
         (
             dsr::load(dsr_dir)?,
@@ -42,9 +69,33 @@ pub fn run(dsr_dir: &Path, wow_dir: &Path, kit_name: &str, clips: &[String]) -> 
             .bone(rig.names.pelvis)
             .context("the DS pelvis bone is missing")?,
     );
+    // `PROBE_PIVOTS=1`: the WoW model's bones (parent, bind pivot in Bevy axes) for writing a pair table.
+    if std::env::var("PROBE_PIVOTS").is_ok() {
+        for (i, (p, par)) in skel.pivots.iter().zip(&skel.parents).enumerate() {
+            println!(
+                "{i:3} parent {par:3} pivot {:+.2} {:+.2} {:+.2}",
+                p.x, p.y, p.z
+            );
+        }
+    }
     for name in clips {
         let clip = dsr::decode(&source, name)?;
         let r = retarget::retarget(&source.skeleton, &clip, &skel, rig, source.flags(name))?;
+        // `PROBE_BONES=a,b`: the same paths through the kit's retarget.
+        if let Ok(list) = std::env::var("PROBE_BONES") {
+            for (i, f) in r.ds.frames.iter().enumerate().step_by(3) {
+                let p0 = glam::Vec3::from_array(f[pelvis].t);
+                let s: Vec<String> = list
+                    .split(',')
+                    .filter_map(|n| source.skeleton.bone(n))
+                    .map(|b| {
+                        let v = glam::Vec3::from_array(f[b].t) - p0;
+                        format!("({:+.2} {:+.2} {:+.2})", v.x, v.y, v.z)
+                    })
+                    .collect();
+                println!("  {name} {:.2}s {}", i as f32 / clip.fps, s.join(" "));
+            }
+        }
         let (fwd, left) = monster::push(&r, head, pelvis)?;
         let f = &r.ds.frames;
         let pelvis_y = |i: usize| f[i][pelvis].t[1];

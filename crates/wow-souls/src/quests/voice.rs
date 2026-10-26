@@ -1,11 +1,12 @@
 //! Quest voices: the Spoken Player addon's AI voices for WoW Classic's quest texts
-//! (https://www.curseforge.com/wow/addons/spoken-player, by rustykey, MIT; the `SpokenQuestsAudio` packs
+//! (https://www.curseforge.com/wow/addons/spoken-player, by rustykey; see data/voices/README.md for terms;
+//! the `SpokenQuestsAudio` packs
 //! from the addon's GitHub releases). The packs name their quest files by quest id:
 //! `<id>-accept.ogg` is read to the player when a quest is offered, `<id>-complete.ogg` when it is handed
-//! in. They live outside the repo (1.4 GB of someone else's audio) in one root folder holding the four
+//! in. The active quest subset lives in data/voices, in one root folder holding the
 //! pack folders (`SpokenQuestsAudioAlliance`, `...Horde`, `...Shared`, `...Gossip`), each with
 //! `generated\sounds\quests\`: `WOWSOULS_SPOKEN=<that root>` (`0` turns the voices off), by default
-//! `C:\Spel\research\spoken\x`. The first pack that has a file wins, the player's faction first (the
+//! `data/voices` beside the game. The first pack that has a file wins, the player's faction first (the
 //! player is a Human). A voice plays while its page is open and is cut when the page changes or the
 //! dialogue closes.
 
@@ -20,7 +21,7 @@ use super::Talk;
 use crate::audio::Audio;
 
 /// The root the four packs are expected under.
-const DEFAULT_ROOT: &str = r"C:\Spel\research\spoken\x";
+const DEFAULT_ROOT: &str = "data/voices";
 /// The packs' quest folders, in the order they are searched: the player's faction (Alliance) before the
 /// quests both sides share.
 const PACKS: [&str; 3] = [
@@ -81,7 +82,7 @@ pub fn plugin(app: &mut App) {
     let root = match std::env::var("WOWSOULS_SPOKEN") {
         Ok(v) if v.trim() == "0" => None,
         Ok(v) => Some(PathBuf::from(v)),
-        Err(_) => Some(PathBuf::from(DEFAULT_ROOT)),
+        Err(_) => Some(wow_world::project_path(DEFAULT_ROOT)),
     };
     let dirs = root.as_deref().map(pack_dirs).unwrap_or_default();
     if dirs.is_empty() {

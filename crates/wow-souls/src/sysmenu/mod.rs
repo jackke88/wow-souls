@@ -21,6 +21,8 @@ use crate::settings::{Settings, GRASS_STEPS};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     Root,
+    Map,
+    Talents,
     Options,
     Sound,
     Graphics,
@@ -33,6 +35,8 @@ impl Page {
     pub fn title(self) -> &'static str {
         match self {
             Page::Root => "Menu",
+            Page::Map => "Map",
+            Page::Talents => "Talents",
             Page::Options => "Options",
             Page::Sound => "Sound",
             Page::Graphics => "Graphics",
@@ -470,6 +474,11 @@ impl SysMenu {
         self.page = Page::Options;
     }
 
+    pub fn show_map(&mut self) {
+        self.show();
+        self.page = Page::Map;
+    }
+
     pub fn hide(&mut self) {
         self.open = false;
         self.capture = None;
@@ -498,9 +507,13 @@ impl SysMenu {
                 cmd(Cmd::Pack, "Pack"),
                 cmd(Cmd::Equipment, "Equipment"),
                 cmd(Cmd::QuestLog, "Quest log"),
+                go(Page::Map),
+                go(Page::Talents),
                 go(Page::Options),
                 cmd(Cmd::Quit, "Quit game"),
             ],
+            Page::Map => vec![], // The chart owns its pan/zoom/marker controls.
+            Page::Talents => vec![], // The talent board owns its cards and input.
             Page::Options => vec![
                 go(Page::Sound),
                 go(Page::Graphics),
@@ -636,7 +649,7 @@ impl SysMenu {
         self.note.clear();
     }
 
-    fn leave(&mut self) -> Vec<Effect> {
+    pub(crate) fn leave(&mut self) -> Vec<Effect> {
         match self.stack.pop() {
             Some((page, cursor, scroll)) => {
                 self.page = page;
@@ -697,6 +710,20 @@ impl SysMenu {
     /// One press. A press during a capture is not a press: the capture owns the input
     /// ([`SysMenu::captured`]).
     pub fn press(&mut self, p: Press, s: &mut Settings) -> Vec<Effect> {
+        if self.page == Page::Talents {
+            return if p == Press::Back {
+                self.leave()
+            } else {
+                vec![]
+            };
+        }
+        if self.page == Page::Map {
+            return if p == Press::Back {
+                vec![Effect::Close]
+            } else {
+                vec![]
+            };
+        }
         if self.capture.is_some() {
             return Vec::new();
         }
@@ -882,7 +909,7 @@ mod tests {
     }
 
     #[test]
-    fn it_opens_on_the_root_and_the_root_lists_the_six_things() {
+    fn it_opens_on_the_root_with_map_and_the_existing_menu_commands() {
         let (m, s) = menu();
         let labels: Vec<String> = m.rows(&s).into_iter().map(|r| r.label).collect();
         assert_eq!(
@@ -892,6 +919,8 @@ mod tests {
                 "Pack",
                 "Equipment",
                 "Quest log",
+                "Map",
+                "Talents",
                 "Options",
                 "Quit game"
             ]
@@ -903,7 +932,7 @@ mod tests {
     fn the_cursor_wraps_and_confirm_acts_on_the_root() {
         let (mut m, mut s) = menu();
         m.press(Press::Up, &mut s);
-        assert_eq!(m.cursor, 5);
+        assert_eq!(m.cursor, 7);
         assert_eq!(m.press(Press::Confirm, &mut s), [Effect::Quit]);
         m.cursor = 0;
         assert_eq!(m.press(Press::Confirm, &mut s), [Effect::Close]);
@@ -948,8 +977,31 @@ mod tests {
         assert_eq!(m.page, Page::Options);
         assert!(m.press(Press::Back, &mut s).is_empty());
         assert_eq!(m.page, Page::Root);
-        assert_eq!(m.cursor, 4, "the cursor is back on Options");
+        assert_eq!(m.cursor, 6, "the cursor is back on Options");
         assert_eq!(m.press(Press::Back, &mut s), [Effect::Close]);
+    }
+
+    #[test]
+    fn the_chart_owns_its_controls_and_back_closes_without_activating_a_menu_row() {
+        let (mut m, mut s) = menu();
+        go(&mut m, &mut s, "Map");
+        assert_eq!(m.page, Page::Map);
+        assert!(m.rows(&s).is_empty());
+        assert!(m.press(Press::Confirm, &mut s).is_empty());
+        assert!(m.press(Press::Right, &mut s).is_empty());
+        assert_eq!(m.press(Press::Back, &mut s), [Effect::Close]);
+    }
+
+    #[test]
+    fn talent_board_owns_confirm_and_back_returns_to_the_menu() {
+        let (mut m, mut s) = menu();
+        go(&mut m, &mut s, "Talents");
+        assert_eq!(m.page, Page::Talents);
+        assert!(m.rows(&s).is_empty());
+        assert!(m.press(Press::Confirm, &mut s).is_empty());
+        assert!(m.press(Press::Back, &mut s).is_empty());
+        assert!(m.open && m.page == Page::Root);
+        assert_eq!(m.current(&s).unwrap().label, "Talents");
     }
 
     #[test]

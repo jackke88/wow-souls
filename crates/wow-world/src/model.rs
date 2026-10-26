@@ -66,6 +66,39 @@ pub struct Creature {
     pub unit_class: u32,
 }
 
+/// A creature's reaction to the Human player, derived from its faction template.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Disposition {
+    Friendly,
+    Neutral,
+    Hostile,
+}
+
+/// Optional import metadata kept separate so the creature record retains its old layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CreatureMeta {
+    pub entry: u32,
+    /// `display_probability1..4`; all zero keeps the legacy display fallback.
+    pub display_weights: [u32; 4],
+    /// None when the import has not resolved the faction reaction.
+    pub reaction: Option<Disposition>,
+}
+
+/// Alternative spawn locations sharing the database's active-creature limit.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpawnPool {
+    pub id: u32,
+    pub max_active: u32,
+    pub members: Vec<PoolMember>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PoolMember {
+    pub guid: u32,
+    /// Database percentage; zero belongs to the pool's equal-chance group.
+    pub chance: f32,
+}
+
 /// An item and a count: a required item, a reward.
 pub type ItemCount = (u32, u32);
 
@@ -282,7 +315,11 @@ pub struct World {
     /// Area ids counted as the valley, with their names, for the manifest's record of what was used.
     pub areas: Vec<(u32, String)>,
     pub creatures: Vec<Creature>,
+    /// Display probabilities and faction reactions; empty before `wsworld 4`.
+    pub creature_meta: Vec<CreatureMeta>,
     pub spawns: Vec<Spawn>,
+    /// Creature-only pools, expanded to GUIDs; empty before `wsworld 4`.
+    pub spawn_pools: Vec<SpawnPool>,
     /// The paths of the selected spawns, sorted by (guid, path_id, point).
     pub waypoints: Vec<Waypoint>,
     pub quests: Vec<Quest>,

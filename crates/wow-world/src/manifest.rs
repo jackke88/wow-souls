@@ -1,6 +1,6 @@
-//! The manifest `wsworld 2`: the selected [`World`] as text, the one file the game reads.
+//! The manifest `wsworld 4`: the selected [`World`] as text, the one file the game reads.
 //!
-//! The first line is `wsworld 2` (the reader also takes `wsworld 1`, see below). Every other line is
+//! The first line is `wsworld 4` (the reader also takes versions 1–3). Every other line is
 //! one record, `kind<TAB>field<TAB>...`, escaped like the database export (`tsv::escape`: a backslash
 //! before a backslash, tab or newline; an empty string is an empty field). The fields of a kind are
 //! the fields of its `model.rs` struct in declaration order: arrays are flattened into consecutive
@@ -15,7 +15,10 @@
 //! `required_condition`, `rep_objective`, `rep_min`, `rep_max`, `reward_rep` and `reward_mail` after
 //! `event`; the `object` record gains `data6..data9` after `data5`; and the kinds `itemx`, `qscript` and
 //! `xp` are new. The reader takes a `wsworld 1` file too (the missing fields read as 0 / empty and the new
-//! kinds are refused in it); the writer always writes `wsworld 2`.
+//! kinds are refused in it). Version 3 adds item stats and the `levelstat` / `classstat` kinds.
+//! Version 4 adds separate `creaturemeta` records (entry, four display weights, reaction
+//! `unknown` / `friendly` / `neutral` / `hostile`) and `pool` records (id, active limit, member count,
+//! then GUID / chance pairs). Their vectors stay empty in older files. The writer writes version 4.
 //!
 //! The text is a function of the `World` (vectors are written in their order, `select` sorts them),
 //! so writing the same world twice gives the same bytes.
@@ -28,9 +31,9 @@ use std::str::FromStr;
 
 const MAGIC: &str = "wsworld";
 /// The version the writer writes.
-const VERSION: &str = "3";
+const VERSION: &str = "4";
 /// The versions the reader knows.
-const READS: [&str; 3] = ["1", "2", "3"];
+const READS: [&str; 4] = ["1", "2", "3", "4"];
 
 /// One record being written.
 struct Rec(Vec<String>);
@@ -91,7 +94,7 @@ fn loot_kind_name(k: LootKind) -> &'static str {
     }
 }
 
-/// The whole world as `wsworld 1` text.
+/// The whole world as `wsworld 4` text.
 pub fn write(w: &World) -> String {
     let mut out = format!("{MAGIC} {VERSION}\n");
     let mut add = |r: &Rec| out.push_str(&r.line());
@@ -126,6 +129,28 @@ pub fn write(w: &World) -> String {
             .put(c.health_multiplier)
             .put(c.damage_multiplier)
             .put(c.unit_class));
+    }
+    for meta in &w.creature_meta {
+        let reaction = match meta.reaction {
+            None => "unknown",
+            Some(Disposition::Friendly) => "friendly",
+            Some(Disposition::Neutral) => "neutral",
+            Some(Disposition::Hostile) => "hostile",
+        };
+        add(Rec::new("creaturemeta")
+            .put(meta.entry)
+            .all(&meta.display_weights)
+            .put(reaction));
+    }
+    for pool in &w.spawn_pools {
+        let mut rec = Rec::new("pool");
+        rec.put(pool.id)
+            .put(pool.max_active)
+            .put(pool.members.len());
+        for member in &pool.members {
+            rec.put(member.guid).put(member.chance);
+        }
+        add(&rec);
     }
     for s in &w.spawns {
         add(Rec::new("spawn")
@@ -328,7 +353,7 @@ pub fn write(w: &World) -> String {
 struct Cur<'a> {
     fields: &'a [Option<String>],
     at: usize,
-    /// The file's `wsworld` version (1 or 2).
+    /// The file's `wsworld` version (1–4).
     version: u8,
 }
 
@@ -436,8 +461,43 @@ fn read_record(kind: &str, c: &mut Cur, w: &mut World) -> Result<()> {
     if matches!(kind, "levelstat" | "classstat") && c.version < 3 {
         bail!("unknown record kind `{kind}` (it needs wsworld 3)");
     }
+    if matches!(kind, "creaturemeta" | "pool") && c.version < 4 {
+        bail!("unknown record kind `{kind}` (it needs wsworld 4)");
+    }
     match kind {
         "area" => w.areas.push((c.num()?, c.text()?)),
+        "creaturemeta" => w.creature_meta.push(CreatureMeta {
+            entry: c.num()?,
+            display_weights: c.arr()?,
+            reaction: match c.raw()? {
+                "unknown" => None,
+                "friendly" => Some(Disposition::Friendly),
+                "neutral" => Some(Disposition::Neutral),
+                "hostile" => Some(Disposition::Hostile),
+                other => bail!("unknown creature reaction `{other}`"),
+            },
+        }),
+        "pool" => {
+            let id = c.num()?;
+            let max_active = c.num()?;
+            let n: usize = c.num()?;
+            if n > (c.fields.len() - c.at) / 2 {
+                bail!("too few fields for {n} pool members");
+            }
+            let members = (0..n)
+                .map(|_| {
+                    Ok(PoolMember {
+                        guid: c.num()?,
+                        chance: c.num()?,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            w.spawn_pools.push(SpawnPool {
+                id,
+                max_active,
+                members,
+            });
+        }
         "creature" => w.creatures.push(Creature {
             entry: c.num()?,
             name: c.text()?,
@@ -664,7 +724,7 @@ fn read_record(kind: &str, c: &mut Cur, w: &mut World) -> Result<()> {
     c.done()
 }
 
-/// Read `wsworld 2` (or `wsworld 1`) text back into a [`World`].
+/// Read any supported `wsworld` version back into a [`World`].
 pub fn parse(text: &str) -> Result<World> {
     let recs = records(text)?;
     let Some(first) = recs.first() else {
@@ -700,6 +760,13 @@ pub fn parse(text: &str) -> Result<World> {
         };
         read_record(kind, &mut cur, &mut w)
             .map_err(|e| anyhow!("manifest record {n} (`{kind}`): {e}"))?;
+    }
+    crate::pool::validate(&w.spawn_pools).map_err(|e| anyhow!("manifest pools: {e}"))?;
+    let mut entries = std::collections::HashSet::new();
+    for meta in &w.creature_meta {
+        if !entries.insert(meta.entry) {
+            bail!("manifest: duplicate creaturemeta entry {}", meta.entry);
+        }
     }
     Ok(w)
 }
@@ -834,6 +901,42 @@ mod tests {
                 unit_class: 1,
             },
         ];
+        w.creature_meta = vec![
+            CreatureMeta {
+                entry: 38,
+                display_weights: [10, 20, 30, 40],
+                reaction: Some(Disposition::Hostile),
+            },
+            CreatureMeta {
+                entry: 721,
+                display_weights: [100, 0, 0, 0],
+                reaction: Some(Disposition::Neutral),
+            },
+            CreatureMeta {
+                entry: 197,
+                display_weights: [0, 50, 0, 50],
+                reaction: Some(Disposition::Friendly),
+            },
+            CreatureMeta {
+                entry: 103,
+                display_weights: [0; 4],
+                reaction: None,
+            },
+        ];
+        w.spawn_pools = vec![SpawnPool {
+            id: 1270,
+            max_active: 1,
+            members: vec![
+                PoolMember {
+                    guid: 80247,
+                    chance: 0.0,
+                },
+                PoolMember {
+                    guid: 6732,
+                    chance: 0.1,
+                },
+            ],
+        }];
         w.spawns.push(Spawn {
             guid: 6732,
             entry: 721,
@@ -1098,7 +1201,7 @@ mod tests {
     fn write_then_parse_is_the_identity() {
         let w = sample();
         let text = write(&w);
-        assert!(text.starts_with("wsworld 3\n"));
+        assert!(text.starts_with("wsworld 4\n"));
         assert_eq!(parse(&text).unwrap(), w);
     }
 
@@ -1111,7 +1214,7 @@ mod tests {
         // Floats come back bit for bit, not just nearly equal.
         assert_eq!(back.spawns[1].pos[0].to_bits(), 0.1f32.to_bits());
         assert_eq!(back.spawns[1].pos[2].to_bits(), f32::MAX.to_bits());
-        // Every one of the sixteen kinds is written.
+        // Every record kind is written.
         let kinds: std::collections::BTreeSet<_> = records(&text)
             .unwrap()
             .into_iter()
@@ -1121,6 +1224,8 @@ mod tests {
         let want: std::collections::BTreeSet<_> = [
             "area",
             "creature",
+            "creaturemeta",
+            "pool",
             "spawn",
             "waypoint",
             "quest",
@@ -1159,7 +1264,7 @@ mod tests {
     #[test]
     fn an_empty_world_is_just_the_header() {
         let text = write(&World::default());
-        assert_eq!(text, "wsworld 3\n");
+        assert_eq!(text, "wsworld 4\n");
         assert_eq!(parse(&text).unwrap(), World::default());
     }
 
@@ -1167,7 +1272,7 @@ mod tests {
     fn the_line_layout_is_the_documented_one() {
         let text = write(&sample());
         let lines: Vec<&str> = text.split('\n').collect();
-        assert_eq!(lines[0], "wsworld 3");
+        assert_eq!(lines[0], "wsworld 4");
         assert_eq!(lines[1], "area\t9\tNorthshire Valley");
         // guid, entry, alt x4, pos x3, orientation, respawn min / max, wander, movement, area, event.
         assert_eq!(
@@ -1223,6 +1328,8 @@ mod tests {
         w.item_extras.clear();
         w.level_stats.clear();
         w.class_stats.clear();
+        w.creature_meta.clear();
+        w.spawn_pools.clear();
         for i in &mut w.items {
             i.stats.clear();
         }
@@ -1271,10 +1378,10 @@ mod tests {
     }
 
     #[test]
-    fn stats_and_the_level_tables_round_trip_and_are_written_as_wsworld_3() {
+    fn stats_and_the_level_tables_round_trip_in_the_current_version() {
         let w = full();
         let text = write(&w);
-        assert!(text.starts_with("wsworld 3\n"), "{text}");
+        assert!(text.starts_with("wsworld 4\n"), "{text}");
         assert!(
             text.contains("\nlevelstat\t1\t2\t24\t21\t23\t20\t20\n"),
             "{text}"
@@ -1288,12 +1395,14 @@ mod tests {
         let mut w = full();
         w.level_stats.clear();
         w.class_stats.clear();
+        w.creature_meta.clear();
+        w.spawn_pools.clear();
         for i in &mut w.items {
             i.stats.clear();
         }
         // The version 2 text: the same records, header 2, no stats list on the item, no new kinds.
         let text: String = write(&w)
-            .replacen("wsworld 3", "wsworld 2", 1)
+            .replacen("wsworld 4", "wsworld 2", 1)
             .lines()
             .map(|l| {
                 if l.starts_with("item\t") {
@@ -1312,6 +1421,68 @@ mod tests {
         assert!(back.level_stats.is_empty() && back.class_stats.is_empty());
         assert!(back.items.iter().all(|i| i.stats.is_empty()));
         assert_eq!(back, w);
+    }
+
+    #[test]
+    fn a_wsworld_3_file_keeps_the_new_metadata_vectors_empty() {
+        let mut world = full();
+        world.creature_meta.clear();
+        world.spawn_pools.clear();
+        let old = write(&world).replacen("wsworld 4", "wsworld 3", 1);
+        let back = parse(&old).unwrap();
+        assert!(back.creature_meta.is_empty() && back.spawn_pools.is_empty());
+        assert_eq!(back, world);
+    }
+
+    #[test]
+    fn metadata_and_pools_round_trip_with_all_reactions() {
+        let world = full();
+        let text = write(&world);
+        assert!(text.contains("\ncreaturemeta\t38\t10\t20\t30\t40\thostile\n"));
+        assert!(text.contains("\ncreaturemeta\t721\t100\t0\t0\t0\tneutral\n"));
+        assert!(text.contains("\ncreaturemeta\t197\t0\t50\t0\t50\tfriendly\n"));
+        assert!(text.contains("\ncreaturemeta\t103\t0\t0\t0\t0\tunknown\n"));
+        assert!(text.contains("\npool\t1270\t1\t2\t80247\t0\t6732\t0.1\n"));
+        let back = parse(&text).unwrap();
+        assert_eq!(back.creature_meta, world.creature_meta);
+        assert_eq!(back.spawn_pools, world.spawn_pools);
+        assert_eq!(
+            back.spawn_pools[0].members[1].chance.to_bits(),
+            0.1f32.to_bits()
+        );
+    }
+
+    #[test]
+    fn version_4_kinds_are_refused_in_every_older_version() {
+        for version in 1..=3 {
+            for record in ["creaturemeta\t38\t0\t0\t0\t0\tunknown", "pool\t1270\t1\t0"] {
+                let err = parse(&format!("wsworld {version}\n{record}\n"))
+                    .unwrap_err()
+                    .to_string();
+                assert!(err.contains("needs wsworld 4"), "{err}");
+            }
+        }
+    }
+
+    #[test]
+    fn metadata_and_pool_validation_rejects_ambiguous_or_invalid_records() {
+        for record in [
+            "creaturemeta\t38\t0\t0\t0\t0\tangry",
+            "creaturemeta\t38\t0\t0\t0\t0\tunknown\ncreaturemeta\t38\t1\t0\t0\t0\thostile",
+            "pool\t1270\t0\t1\t11\t0",
+            "pool\t1270\t1\t1\t11\tNaN",
+            "pool\t1270\t1\t1\t11\tinf",
+            "pool\t1270\t1\t1\t11\t-1",
+            "pool\t1270\t1\t2\t11\t0\t11\t0",
+            "pool\t1270\t1\t1\t11\t0\npool\t3200\t1\t1\t11\t0",
+            "pool\t1270\t1\t0\npool\t1270\t1\t0",
+            "pool\t1270\t1\t18446744073709551615",
+        ] {
+            assert!(
+                parse(&format!("wsworld 4\n{record}\n")).is_err(),
+                "{record}"
+            );
+        }
     }
 
     #[test]
@@ -1356,8 +1527,8 @@ mod tests {
 
     #[test]
     fn an_unknown_version_or_kind_is_an_error() {
-        let v = parse("wsworld 4\n").unwrap_err().to_string();
-        assert!(v.contains("version") && v.contains("`4`"), "{v}");
+        let v = parse("wsworld 5\n").unwrap_err().to_string();
+        assert!(v.contains("version") && v.contains("`5`"), "{v}");
         assert!(parse("wsworld 0\n").is_err());
         assert!(parse("wsworld 2\nbogus\t1\n")
             .unwrap_err()

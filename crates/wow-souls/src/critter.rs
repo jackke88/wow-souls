@@ -202,8 +202,8 @@ pub(crate) fn place(
     asset_server: &AssetServer,
     collide: &WorldCollision,
 ) -> Result<Placed, Unplaced> {
-    let shown =
-        crate::friendly::pick_display(&t.displays, spot.guid).ok_or(Unplaced::NoModel(0))?;
+    let shown = crate::friendly::pick_weighted_display(&t.displays, &t.display_weights, spot.guid)
+        .ok_or(Unplaced::NoModel(0))?;
     let Some(model) = ActorModel::for_display(&catalogs.creatures, shown, None, asset_server)
     else {
         warn!("critter: display {shown} has no model");

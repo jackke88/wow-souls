@@ -1,6 +1,12 @@
 # Provenance
 
-## benilla pin
+## Current source dependency layout (2026-10-17)
+
+The game builds against the 12 engine crates in `vendor/benilla/`, including the graphics fork at `f545081e9f60668b4f5b1252b67b8058c5995bfd` and the two pre-existing local graphics fixes. Licences, upstream URLs, a local-change patch and SHA-256 file inventory are retained there. No sibling checkout is required. The older pin and port history below are historical attribution.
+
+The production workspace contains only wow-souls, wow-world and wscl. DSR readers/extractors remain optional standalone GPL developer tools and are not built or packaged with the game. Runtime clips are editable project `.wsanim` files; binary caches and extraction manifests are unsupported. `data/world/` holds the active vMaNGOS exports; their existing licence/quest-text provenance remains applicable.
+
+## Historical benilla pin
 
 | | |
 |---|---|
@@ -42,6 +48,24 @@ commit. The file's own header names the source too.
 Nothing from the WoW install is in this repository. The engine reads the player's own 1.12.1
 install at runtime through the gitignored `WoW` junction or `WOW_DATA`, and never writes to it.
 
+## DSR / Elden Ring source lifecycle (decision 2026-10-16)
+
+The standing workflow is [SOURCE-TO-ORIGINAL.md](SOURCE-TO-ORIGINAL.md): integrate material from
+DSR or Elden Ring, verify it in the game, create and verify our own replacement, then remove the
+production dependency on both the source files and their extracted/derived data. Both games are
+now present on the development PC; this does not by itself establish working Elden Ring import.
+
+Current DSR imports and caches remain source-derived during prototyping, including retargeted or
+remixed clips. The final release must build, install and run without either game or their derived
+caches. Track each replacement and its verification in the relevant work log. Preserve the source
+history and third-party code licence records below when an asset is replaced.
+
+Jacob's updated instruction (2026-10-16) keeps the editable animation library and playback tables
+as ordinary versioned project files in `anim/source/`, without a Git ignore rule. This supersedes
+the earlier local-only text-bake policy. The 1,161 text clips retain their DSR provenance; conversion
+to degrees/text removes the animation install/cache requirement, not the source-derived nature of
+the curves. See [anim/README.md](../anim/README.md) for the inventory and editing/export workflow.
+
 ## Dark Souls Remastered readers (GPL-3.0-or-later crates)
 
 `crates/dsr-formats` and `crates/dsr-cache` are GPL-3.0-or-later. Ported from:
@@ -59,7 +83,7 @@ install at runtime through the gitignored `WoW` junction or `WOW_DATA`, and neve
   Invincible).
 - Souls Modding wiki (soulsmodding.com, DS1 reference material): the attack animation id scheme
   and the field meanings of `BehaviorParam`, `AtkParam` and `EquipParamWeapon`.
-The game crate (`wow-souls`, MIT OR Apache-2.0) does not link them; it reads `.wscl` files
+The game crate (`wow-souls`, MIT OR Apache-2.0) does not link them; it reads project `.wsanim` files
 (`crates/wscl`, MIT OR Apache-2.0, our own format).
 
 ## WoW audio (2026-10-10): rules ported from benilla-app, no code copied wholesale
@@ -78,8 +102,7 @@ are `benilla-formats` (a dependency):
   `sound/greeting.rs` (`NPCSounds` by display) and the coin of `sound/money.rs` (`LOOTWINDOWCOINSOUND`).
 - `mixer.rs` / `stream.rs`: our own (benilla uses Kira); a streamed voice fed by a decoder thread with a
   stateful linear resampler.
-- The Spoken Player quest voices (`quests/voice.rs`): MIT, by rustykey, github.com/rusty-key/spoken-wow;
-  a separate download, bundled with the release package by the user's decision.
+- The Spoken Player quest voices (`quests/voice.rs`): rustykey, github.com/rusty-key/spoken-wow; the 189 active recordings now live in `data/voices/`. Upstream MIT covers code, not recordings/Blizzard quest text; provider/content terms and sources are recorded in `data/voices/README.md`.
 
 ## benilla-everwood graphics fork (2026-10-10): the engine dependency and the ported lane drivers
 

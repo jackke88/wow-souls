@@ -4,8 +4,8 @@ use crate::settings::Controls;
 use crate::{
     avatar::Avatar,
     combat::Action,
-    dsclip::{self, DsMoves},
     loot::{Data, Owned},
+    motion_clip::{self, WeaponClips},
 };
 use bevy::prelude::*;
 use std::collections::BTreeMap;
@@ -40,7 +40,7 @@ pub fn family_for_subclass(subclass: u32) -> &'static str {
 }
 
 #[derive(Resource, Default)]
-struct Bank(BTreeMap<String, DsMoves>);
+struct Bank(BTreeMap<String, WeaponClips>);
 
 #[derive(Resource)]
 pub struct Ready(pub bool);
@@ -89,9 +89,9 @@ fn stance(
     }
 }
 
-fn load(mut commands: Commands, roll: Option<Res<dsclip::DsRoll>>) {
+fn load(mut commands: Commands, roll: Option<Res<motion_clip::EvadeClips>>) {
     let Some(roll) = roll else { return };
-    let root = dsclip::cache_dir();
+    let root = motion_clip::cache_dir();
     let mut bank = Bank::default();
     match std::fs::read_to_string(root.join("weapons.txt")) {
         Ok(text) if text.lines().next() == Some("wsweapons 1") => {
@@ -99,8 +99,8 @@ fn load(mut commands: Commands, roll: Option<Res<dsclip::DsRoll>>) {
                 let w: Vec<_> = line.split_whitespace().collect();
                 if let ["family", name, path] = w[..] {
                     let dir = root.join(path);
-                    match dsclip::checked_manifest(&dir)
-                        .and_then(|m| dsclip::load_moves(&dir, &m, roll.wow.bones()))
+                    match motion_clip::checked_manifest(&dir)
+                        .and_then(|m| motion_clip::load_moves(&dir, &m, roll.wow.bones()))
                     {
                         Ok(moves) => {
                             bank.0.insert(name.into(), moves);
@@ -110,7 +110,7 @@ fn load(mut commands: Commands, roll: Option<Res<dsclip::DsRoll>>) {
                 }
             }
         }
-        _ => warn!("weapons: run wow-souls-dsr weapons to build weapon families"),
+        _ => warn!("weapons: restore the project anim/source/weapons.txt and weapon-family clips"),
     }
     info!("weapons: loaded {} families", bank.0.len());
     commands.insert_resource(bank);
@@ -118,7 +118,7 @@ fn load(mut commands: Commands, roll: Option<Res<dsclip::DsRoll>>) {
 
 fn select(
     mut bank: Option<ResMut<Bank>>,
-    mut moves: Option<ResMut<DsMoves>>,
+    mut moves: Option<ResMut<WeaponClips>>,
     owned: Res<Owned>,
     data: Res<Data>,
     stance: Res<Stance>,
@@ -198,7 +198,7 @@ fn select(
     } else {
         ready.0 = false;
         if *missing != want {
-            warn!("weapons: no verified {want} cache; attacks disabled. Run wow-souls-dsr weapons");
+            warn!("weapons: no verified {want} cache; attacks disabled. Restore the project anim/source weapon-family clips");
             *missing = want.into();
         }
     }
@@ -208,7 +208,7 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Stance>()
         .init_resource::<Ready>()
         .add_plugins(crate::projectiles::plugin)
-        .add_systems(Startup, load.after(dsclip::startup))
+        .add_systems(Startup, load.after(motion_clip::startup))
         .add_systems(Update, (stance, select).chain().before(crate::combat::act));
 }
 
@@ -226,11 +226,11 @@ mod tests {
         for line in index.lines().skip(1) {
             let v: Vec<_> = line.split_whitespace().collect();
             let dir = root.join(v[2]);
-            let manifest = dsclip::checked_manifest(&dir).unwrap();
-            let m = dsclip::load_moves(
+            let manifest = motion_clip::checked_manifest(&dir).unwrap();
+            let m = motion_clip::load_moves(
                 &dir,
                 &manifest,
-                dsclip::read_clip(root, "human_male", "a00_0710")
+                motion_clip::read_clip(root, "human_male", "body_roll")
                     .unwrap()
                     .bones(),
             )
@@ -246,7 +246,7 @@ mod tests {
             if m.family == "mace_2h" {
                 assert_eq!(
                     m.clip(crate::combat::MoveKind::R2(0)).unwrap().wow.name,
-                    "a59_4300"
+                    "mace_2h_heavy_1"
                 );
             }
             if m.family == "great_hammer" {
@@ -261,7 +261,7 @@ mod tests {
                 if matches!(m.family.as_str(), "crossbow" | "gun") {
                     let clip = m.clip(crate::combat::MoveKind::R1(0)).unwrap();
                     let (_, weapon) = m.grip_bones.unwrap();
-                    let q = crate::dsclip::sample(&clip.ds, p.release, weapon).1;
+                    let q = crate::motion_clip::sample(&clip.reference, p.release, weapon).1;
                     let barrel = q * m.grip.weapon;
                     assert!(
                         barrel.dot(Vec3::NEG_Z) > 0.98,
@@ -282,8 +282,8 @@ mod tests {
             let (idle, _) = m.idle.as_ref().expect("every weapon needs a rest pose");
             // The runtime must not have to hide an actual discontinuity in the source loop.
             for bone in [48, 64, 49, 65, 78, 95, 50, 66, 79, 97] {
-                let start = crate::dsclip::sample(idle, 0.0, bone).1;
-                let end = crate::dsclip::sample(idle, idle.duration(), bone).1;
+                let start = crate::motion_clip::sample(idle, 0.0, bone).1;
+                let end = crate::motion_clip::sample(idle, idle.duration(), bone).1;
                 assert!(
                     start.angle_between(end).to_degrees() < 0.2,
                     "{} rest seam",

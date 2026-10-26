@@ -1,0 +1,49 @@
+id	title	level	givers	enders	warrior_chain_reachable	mage_chain_reachable	rogue_chain_reachable	external_prerequisites	event_work
+9	The Killing Fields	15	npc:233	npc:233	true	true	true		Standardmål – inte slutspeltestat
+12	The People's Militia	12	npc:234	npc:234	true	true	true		Standardmål – inte slutspeltestat
+13	The People's Militia	14	npc:234	npc:234	true	true	true		Standardmål – inte slutspeltestat
+14	The People's Militia	17	npc:234	npc:234	true	true	true		Standardmål – inte slutspeltestat
+22	Goretusk Liver Pie	12	npc:235	npc:235	true	true	true		Standardmål – inte slutspeltestat
+36	Westfall Stew	10	npc:238	npc:235	true	true	true		Standardmål – inte slutspeltestat
+38	Westfall Stew	13	npc:235	npc:235	true	true	true		Standardmål – inte slutspeltestat
+48	Sweet Amber	44	npc:239	npc:239	true	true	true		Standardmål – inte slutspeltestat
+49	Sweet Amber	44	npc:239	npc:239	true	true	true		Standardmål – inte slutspeltestat
+50	Sweet Amber	44	npc:239	npc:239	true	true	true		Standardmål – inte slutspeltestat
+51	Sweet Amber	44	npc:239	npc:239	true	true	true		Standardmål – inte slutspeltestat
+53	Sweet Amber	44	npc:239	npc:239	true	true	true		Standardmål – inte slutspeltestat
+64	The Forgotten Heirloom	12	npc:237	npc:237	true	true	true		Standardmål – inte slutspeltestat
+65	The Defias Brotherhood	18	npc:234	npc:266	true	true	true		extern avslutare
+67	The Legend of Stalvan	28	npc:267	obj:3643	false	false	false	66	serverskript, extern givare/itemstart
+68	The Legend of Stalvan	28	obj:3643	npc:267	false	false	false		extern avslutare
+102	Patrolling Westfall	14	npc:821	npc:821	true	true	true		Standardmål – inte slutspeltestat
+103	Keeper of the Flame	16	npc:392	npc:392	true	true	true		Standardmål – inte slutspeltestat
+104	The Coastal Menace	20	npc:392	npc:392	true	true	true		Standardmål – inte slutspeltestat
+109	Report to Gryan Stoutmantle	10	npc:233, npc:237, npc:240, npc:261, npc:294, npc:963	npc:234	true	true	true		Standardmål – inte slutspeltestat
+117	Thunderbrew	15	npc:239	npc:239	true	true	true		Standardmål – inte slutspeltestat
+132	The Defias Brotherhood	18	npc:266	npc:234	false	false	false		extern givare/itemstart
+135	The Defias Brotherhood	18	npc:234	npc:332	false	false	false		Standardmål – inte slutspeltestat
+136	Captain Sander's Hidden Treasure	16		obj:35	true	true	true		extern givare/itemstart
+138	Captain Sander's Hidden Treasure	16	obj:35	obj:36	true	true	true		Standardmål – inte slutspeltestat
+139	Captain Sander's Hidden Treasure	16	obj:36	obj:34	true	true	true		Standardmål – inte slutspeltestat
+140	Captain Sander's Hidden Treasure	16	obj:34	obj:33	true	true	true		Standardmål – inte slutspeltestat
+141	The Defias Brotherhood	18	npc:332	npc:234	false	false	false		Standardmål – inte slutspeltestat
+142	The Defias Brotherhood	18	npc:234	npc:234	false	false	false		Standardmål – inte slutspeltestat
+143	Messenger to Westfall	14	npc:344	npc:234	false	false	false	121	extern givare/itemstart
+144	Messenger to Westfall	14	npc:234	npc:344	false	false	false		extern avslutare
+151	Poor Old Blanchy	14	npc:238	npc:238	true	true	true		Standardmål – inte slutspeltestat
+152	The Coast Isn't Clear	19	npc:392	npc:392	true	true	true		Standardmål – inte slutspeltestat
+153	Red Leather Bandanas	15	npc:878	npc:878	true	true	true		Standardmål – inte slutspeltestat
+155	The Defias Brotherhood	18	npc:467	npc:234	false	false	false		serverskript, händelse/eskort
+166	The Defias Brotherhood	22	npc:234	npc:234	false	false	false		serverskript
+184	Furlbrow's Deed	9		npc:237	true	true	true		extern givare/itemstart
+214	Red Silk Bandanas	17	npc:820	npc:820	false	false	false		Standardmål – inte slutspeltestat
+1650	The Tome of Valor	23	npc:6171	npc:6182	false	false	false	1649	Standardmål – inte slutspeltestat
+1651	The Tome of Valor	25	npc:6182	npc:6182	false	false	false		händelse/eskort
+1652	The Tome of Valor	25	npc:6182	npc:6171	false	false	false		Standardmål – inte slutspeltestat
+2359	Klaven's Tower	24	npc:7024	npc:332	false	false	true		serverskript
+2360	Mathias and the Defias	20	npc:332	npc:7024	false	false	true		Standardmål – inte slutspeltestat
+3861	CLUCK!	1	npc:620	npc:620	true	true	true		Standardmål – inte slutspeltestat
+6181	A Swift Message	10	npc:491	npc:523	true	true	true		Standardmål – inte slutspeltestat
+6261	Dungar Longdrink	10	npc:1323	npc:352	true	true	true		Standardmål – inte slutspeltestat
+6281	Continue to Stormwind	10	npc:523	npc:1323	true	true	true		Standardmål – inte slutspeltestat
+6285	Return to Lewis	10	npc:352	npc:491	true	true	true		Standardmål – inte slutspeltestat

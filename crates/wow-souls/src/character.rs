@@ -1,5 +1,6 @@
 //! The player's character: race, class, sex and name, chosen in the creation menu ([`crate::menu`]) and
-//! saved in `%LOCALAPPDATA%\WoWSouls\character-v1.txt` (`wschar 1`). Only a Human Warrior (male) can be
+//! saved in its folder, `%LOCALAPPDATA%\WoWSouls\characters\<n>\character-v1.txt` ([`crate::saves`],
+//! `wschar 2`; `wschar 1` still reads). Only a Human (male) Warrior or Mage can be
 //! made for now: everything else is listed and greyed, so the menu shows where the game is going.
 
 use std::path::PathBuf;
@@ -119,9 +120,9 @@ impl Class {
         }
     }
 
-    /// Only the warrior can be made yet.
+    /// The classes the game can play: the Warrior and the Mage.
     pub fn enabled(self) -> bool {
-        self == Class::Warrior
+        matches!(self, Class::Warrior | Class::Mage)
     }
 
     /// The `ChrClasses` id the item rules and the databases use.
@@ -348,10 +349,7 @@ pub fn check_name(raw: &str) -> Result<String, String> {
 pub fn save_path() -> PathBuf {
     std::env::var("WOWSOULS_CHARACTER")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "saves".into()))
-                .join("WoWSouls/character-v1.txt")
-        })
+        .unwrap_or_else(|_| crate::saves::file(crate::saves::CHARACTER_FILE))
 }
 
 /// The saved character: `Ok(None)` when there is none yet, an error when the file cannot be read (the
@@ -383,13 +381,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_a_human_male_warrior_can_be_made_yet() {
+    fn only_a_human_male_warrior_or_mage_can_be_made_yet() {
         let c = Character::human_warrior("Jacob");
         assert!(c.playable());
+        let mage = Character {
+            class: Class::Mage,
+            ..c.clone()
+        };
+        assert!(mage.playable(), "the Mage is the second class");
         for race in Race::ALL.into_iter().filter(|r| *r != Race::Human) {
             assert!(!race.enabled(), "{race:?}");
         }
-        for class in Class::ALL.into_iter().filter(|c| *c != Class::Warrior) {
+        for class in Class::ALL
+            .into_iter()
+            .filter(|c| !matches!(c, Class::Warrior | Class::Mage))
+        {
             assert!(!class.enabled(), "{class:?}");
         }
         assert!(!Sex::Female.enabled());
