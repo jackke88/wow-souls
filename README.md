@@ -7,7 +7,7 @@ the game's data from your own 1.12.1 install without writing to it.
 
 > **Fan project, prototype quality.** Not affiliated with or endorsed by Blizzard Entertainment or
 > FromSoftware. No game files from either company are in this repository: you need your own
-> World of Warcraft 1.12.1 client.
+> World of Warcraft 1.12.1 client and your own Dark Souls Remastered.
 
 ## Play
 
@@ -15,7 +15,7 @@ the game's data from your own 1.12.1 install without writing to it.
 
 - Windows 10/11 64-bit and a GPU with Vulkan or DirectX 12.
 - Your own **World of Warcraft 1.12.1 (build 5875)** client: the folder with `WoW.exe` and `Data\`.
-- For the full combat animations: your own **Dark Souls Remastered** (Steam). Optional, see below.
+- Your own **Dark Souls Remastered** (Steam): the combat animations are built from it on the first start. They are the heart of the game.
 - [Rust](https://rustup.rs) (the right toolchain is picked automatically from `rust-toolchain.toml`).
 
 **Build and start:** clone or download the repository and double-click **`Play.bat`**. It builds the
@@ -32,12 +32,11 @@ cd wow-souls
 1. A folder dialog asks for your **WoW 1.12.1 folder** (the folder holding `WoW.exe`, or its `Data`
    folder). The game checks that it is a 1.12.1 client and remembers it in
    `%LOCALAPPDATA%\WoWSouls\wow-folder.txt`.
-2. The game offers to **build the combat animations** from your **Dark Souls Remastered** folder
-   (in Steam: right-click the game, Manage, Browse local files). It takes about half a minute, reads
-   your game folder without changing it, and checks every one of the 1,571 clips against the
-   developer's copy. The result goes to `%LOCALAPPDATA%\WoWSouls\anim`. Answer No to play with WoW's
-   own animations (walk/run, a simple roll and swing, older enemy moves; Mage spells need the built
-   animations).
+2. The game asks you to **build the combat animations** from your **Dark Souls Remastered** folder
+   (in Steam: right-click the game, Manage, Browse local files). Answer Yes. It takes about half a
+   minute, reads your game folder without changing it, and checks every one of the 1,571 clips against
+   the developer's copy. The result goes to `%LOCALAPPDATA%\WoWSouls\anim`. These animations are
+   what the game is built around: every move of the player and of every creature comes from them.
 
 Neither game folder is ever written to, and nothing is downloaded.
 
@@ -299,41 +298,33 @@ Wooden Shield, Recruit's Shirt, Pants and Boots). Not modelled: weapon skills le
 equip, durability, the Show Helm / Show Cloak options, the bag slots; armor and weapon damage do not change
 combat yet, the tooltip prints them.
 
-## Project animations and optional source tools
+## Animations
 
 All 19 weapon families, player locomotion/roll/defense/reactions/casts/interactions and creature
-kits load from tracked editable `.wsanim` files and tables in [`anim/source/`](anim/README.md).
-Missing or malformed text fails visibly; binary `.wscl` caches cannot replace it. Extraction
-manifests requiring source-game files are rejected without reading their source paths.
-The existing DSR-derived curves, timing and balance are preserved, with their provenance.
-
-The UI uses native Bevy layout, embedded project art and live text. Neither default nor old
-UI switches load DSR HUD art or fonts. `WOWSOULS_HUD=0` retains plain meters; F3 toggles dev text.
-
-`dsr-cache` and `dsr-formats` remain optional GPL-3.0-or-later developer tools, outside the
-production workspace, dependency graph and player package. Run them explicitly if studying
-or re-exporting source data:
+kits load from editable `.wsanim` files and tables in [`anim/source/`](anim/README.md), built on
+your machine from your own Dark Souls Remastered. Missing or malformed text fails visibly; binary
+`.wscl` caches cannot replace it. The animation builder, `crates/dsr-cache` (`wow-souls-dsr.exe`),
+and `crates/dsr-formats` are GPL-3.0-or-later and run as a separate program on the first start
+(or with `Play.bat --setup-animations`), never linked into the game. To rebuild the tables from
+the source clips:
 
 ```powershell
 cargo run -j 4 --manifest-path crates/dsr-cache/Cargo.toml -- bake-project --from cache/dsr --out anim/source
 ```
 
-They are not invoked by game startup, first run, normal builds or tests. Their source-game
-requirements and historical documentation apply only to those tools.
+The UI uses native Bevy layout, embedded project art and live text. `WOWSOULS_HUD=0` retains plain
+meters; F3 toggles dev text.
 
-Verify the production workspace with no DSR/ER installation configured:
+Checks before a change:
 
 ```powershell
 cargo fmt -p wow-souls -p wow-world -p wscl -- --check
 cargo test -j 4 --workspace --offline
 cargo clippy -j 4 --workspace --all-targets --offline -- -D warnings
 cargo build -j 4 -p wow-souls --no-default-features --offline
-./tools/Test-WowOnly.ps1 -Binary target/debug/wow-souls.exe -WowData '<your WoW 1.12.1 Data folder>'
 ```
 
-The last command audits all local source dependencies and runs an isolated package with
-absent DSR/cache paths and isolated saves. Full independent animation authorship remains
-separate work under [SOURCE-TO-ORIGINAL.md](docs/SOURCE-TO-ORIGINAL.md).
+Where the animations are headed: [SOURCE-TO-ORIGINAL.md](docs/SOURCE-TO-ORIGINAL.md).
 
 ## Milestone 1
 
@@ -378,6 +369,29 @@ Continuing in a new chat: see [docs/HANDOVER.md](docs/HANDOVER.md).
   at 2 yd strikes (0.5 s into its wind-up) before an R1 or R2 can land. The held WoW short sword is
   turned so its blade lies along Dark Souls' (mean 3 degrees off, worst 12); its twist about the
   blade is as WoW authored it (`WOWSOULS_GRIP` tunes it by eye).
-- If project animation files are missing the roll is procedural: its crouch is StealthStand, not a tucked
-  ball, so the legs swing wide through the somersault. Locked on, the body turns to roll along the
-  stick, then back to the target.
+- Locked on, the body turns to roll along the stick, then back to the target.
+
+## Credits and legal
+
+WoW Souls is built on [benilla](https://github.com/samwhosung/benilla) by its authors, which does
+all the heavy lifting: every WoW file format, the renderer, the animation and spell systems and
+the interface engine. What is taken from it, and the pinned commit, is in
+[docs/PROVENANCE.md](docs/PROVENANCE.md); the techniques benilla itself ports from other projects
+(WarcraftXL and others) are credited in [vendor/benilla/THIRD-PARTY.md](vendor/benilla/THIRD-PARTY.md).
+
+This is an independent fan project, not affiliated with or endorsed by Blizzard Entertainment or
+FromSoftware. It ships no client files from either company: no Blizzard art, models, sounds, maps,
+MPQ contents or UI files, and no FromSoftware animations or other assets. You provide your own
+legally obtained World of Warcraft 1.12.1 client and your own Dark Souls Remastered; the combat
+animations are built on your machine from your copy, by a separate tool, on the first start. The
+quest, spawn and item tables in `data/world/` are vMaNGOS exports and the quest voice lines are
+Spoken Player recordings; their provenance and terms are in [data/README.md](data/README.md) and
+`data/voices/README.md`. World of Warcraft and Warcraft are trademarks of Blizzard Entertainment,
+Inc. Dark Souls is a trademark of FromSoftware, Inc. and Bandai Namco Entertainment Inc.
+
+The code is licensed under MIT or Apache-2.0, at your option, as benilla is
+([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)). The animation builder
+`crates/dsr-cache` and `crates/dsr-formats` are GPL-3.0-or-later and run as a separate program,
+never linked into the game. The components vendored under `vendor/benilla/` and the embedded
+[EB Garamond](crates/wow-souls/assets/fonts/eb-garamond/SOURCE.txt) font keep their own upstream
+licenses, alongside each.
