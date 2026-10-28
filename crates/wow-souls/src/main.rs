@@ -87,7 +87,6 @@ mod stream;
 mod sysmenu;
 mod talents;
 mod torch;
-mod tour;
 mod trial;
 mod village;
 mod vocal;
