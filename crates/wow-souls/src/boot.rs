@@ -26,7 +26,12 @@ pub fn run(build: BuildId) -> AppExit {
         crate::install::report_missing();
         return AppExit::error();
     }
-    crate::install::animations(run_mode::unattended());
+    // The combat animations are built from the player's own Dark Souls Remastered; without them
+    // there is no game.
+    if !crate::install::animations(run_mode::unattended()) {
+        crate::install::report_animations_required();
+        return AppExit::error();
+    }
     let mut app = App::new();
     app.insert_resource(build);
 

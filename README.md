@@ -32,8 +32,8 @@ cd wow-souls
 1. A folder dialog asks for your **WoW 1.12.1 folder** (the folder holding `WoW.exe`, or its `Data`
    folder). The game checks that it is a 1.12.1 client and remembers it in
    `%LOCALAPPDATA%\WoWSouls\wow-folder.txt`.
-2. The game asks you to **build the combat animations** from your **Dark Souls Remastered** folder
-   (in Steam: right-click the game, Manage, Browse local files). Answer Yes. It takes about half a
+2. The game explains that it **builds the combat animations** from your **Dark Souls Remastered**
+   and asks for its folder (in Steam: right-click the game, Manage, Browse local files). It takes about half a
    minute, reads your game folder without changing it, and checks every one of the 1,571 clips against
    the developer's copy. The result goes to `%LOCALAPPDATA%\WoWSouls\anim`. These animations are
    what the game is built around: every move of the player and of every creature comes from them.

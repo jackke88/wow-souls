@@ -157,54 +157,51 @@ pub fn local_anim_dir() -> PathBuf {
 /// The last file `wow-souls-dsr setup` writes into the library (its `setup::COMPLETE`).
 const ANIM_BUILT: &str = "built.txt";
 
-/// Offers to build the souls animations from the player's own Dark Souls Remastered, once: when the
-/// project has no clips of its own and none were built here yet. "No" is remembered
-/// (`anim-skip.txt`); `--setup-animations` asks again. The builder is a separate program,
-/// `wow-souls-dsr.exe` (beside the game, or built in `crates/dsr-cache`), so its GPL code stays out of
-/// the game; it checks every clip against the developer's hash before the game uses the folder.
-pub fn animations(unattended: bool) {
+/// Builds the souls animations from the player's own Dark Souls Remastered, once: when the project has
+/// no clips of its own and none were built here yet. The animations are what the game is built
+/// around, so there is nothing to decline: the dialog explains and asks for the folder, and a first
+/// start without them ends in [`report_animations_required`]. `--setup-animations` builds them again
+/// (a failed rebuild keeps the old ones). The builder is a separate program, `wow-souls-dsr.exe`
+/// (beside the game, or built in `crates/dsr-cache`), so its GPL code stays out of the game; it
+/// checks every clip against the developer's hash before the game uses the folder. Returns whether
+/// the animations are in place.
+pub fn animations(unattended: bool) -> bool {
     let ask_again = std::env::args().any(|a| a == "--setup-animations");
     if unattended || std::env::var_os("WOWSOULS_ANIM_DIR").is_some() {
-        return;
+        return true;
     }
     let project = wow_world::project_path("anim/source");
     let local = local_anim_dir();
-    let skip = saves_dir().join("anim-skip.txt");
     if crate::animation_library::has_clips(&project) {
-        return;
+        return true;
     }
-    if !ask_again && (local.join(ANIM_BUILT).is_file() || skip.is_file()) {
-        return;
+    let built = local.join(ANIM_BUILT).is_file();
+    if !ask_again && built {
+        return true;
     }
-    let build = rfd::MessageDialog::new()
-        .set_level(rfd::MessageLevel::Info)
-        .set_title("WoW Souls: combat animations")
-        .set_description(
-            "WoW Souls can build its combat animations (roll, attacks, guard, enemy moves) from \
-             your own copy of Dark Souls Remastered. Nothing is downloaded and your game folder \
-             is only read; it takes about half a minute.\n\nBuild them now?\n\n(No: play with \
-             WoW's own animations. Start with --setup-animations to build them later.)",
-        )
-        .set_buttons(rfd::MessageButtons::YesNo)
-        .show();
-    if build != rfd::MessageDialogResult::Yes {
-        let _ = std::fs::create_dir_all(saves_dir());
-        let _ = std::fs::write(&skip, "declined\n");
-        return;
-    }
-    let _ = std::fs::remove_file(&skip);
+    // An older version let the player decline; that mark no longer counts.
+    let _ = std::fs::remove_file(saves_dir().join("anim-skip.txt"));
+    message(
+        rfd::MessageLevel::Info,
+        "WoW Souls: combat animations",
+        "WoW Souls is built around Dark Souls' combat. It builds its animations (the roll, the          attacks, the guard, every creature's moves) from your own copy of Dark Souls Remastered,          which you need to play. Nothing is downloaded and your game folder is only read; it takes          about half a minute.
+
+Next, choose your Dark Souls Remastered folder (in Steam:          right-click the game, Manage, Browse local files).",
+    );
     let Some(dsr) = pick_dsr() else {
-        return;
+        return built;
     };
     let Some(builder) = builder() else {
         message(
             rfd::MessageLevel::Error,
             "Animation builder missing",
-            "wow-souls-dsr.exe was not found beside the game. Build it with\n\n\
-             cargo build --release --manifest-path crates/dsr-cache/Cargo.toml\n\n\
-             (Play.bat does this), then start the game with --setup-animations.",
+            "wow-souls-dsr.exe was not found beside the game. Build it with
+
+             cargo build --release --manifest-path crates/dsr-cache/Cargo.toml
+
+             (Play.bat does this), then start the game again.",
         );
-        return;
+        return built;
     };
     let (Some(wow), Some(root)) = (
         benilla_formats::wow_data(),
@@ -213,7 +210,7 @@ pub fn animations(unattended: bool) {
             .nth(3)
             .map(Path::to_path_buf),
     ) else {
-        return;
+        return built;
     };
     let log = saves_dir().join("anim-setup.log");
     let ran = std::fs::File::create(&log).and_then(|out| {
@@ -239,7 +236,7 @@ pub fn animations(unattended: bool) {
         cmd.status()
     });
     match ran {
-        Ok(status) if status.success() && local.join(ANIM_BUILT).is_file() => {}
+        Ok(status) if status.success() && local.join(ANIM_BUILT).is_file() => true,
         other => {
             let why = match other {
                 Ok(status) => format!("the builder stopped ({status})"),
@@ -259,12 +256,24 @@ pub fn animations(unattended: bool) {
                 rfd::MessageLevel::Error,
                 "Animations not built",
                 &format!(
-                    "{why}. The game starts with WoW's own animations.\n\n{tail}\n\nFull log: {}",
+                    "{why}.\n\n{tail}\n\nFull log: {}\n\nStart the game again to retry.",
                     log.display()
                 ),
             );
+            built
         }
     }
+}
+
+/// Tells the player the game cannot start without the animations.
+pub fn report_animations_required() {
+    message(
+        rfd::MessageLevel::Error,
+        "WoW Souls needs Dark Souls Remastered",
+        "The combat animations were not built. They come from your own copy of Dark Souls \
+         Remastered, which the game needs.\n\nStart the game again and choose the folder that \
+         holds DarkSoulsRemastered.exe (in Steam: right-click the game, Manage, Browse local files).",
+    );
 }
 
 /// The player's DSR folder: the one holding `DarkSoulsRemastered.exe` and `chr\c0000.anibnd.dcx`.
