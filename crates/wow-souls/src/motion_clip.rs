@@ -226,6 +226,9 @@ pub struct WeaponClips {
     pub guards: Vec<crate::defense::Clip>,
     pub guard: Option<(f32, f32, bool)>,
     pub grip_bones: Option<(usize, usize)>,
+    /// Which way the Dark Souls weapon's cutting edge faces, in the weapon bone's own axes: only
+    /// for the families whose head is lopsided (the axes), see [`swing_edge`].
+    pub edge: Option<Vec3>,
     clips: Vec<(MoveKind, MoveClip)>,
     /// The six specs, as the action machine reads them.
     pub moveset: Moveset,
@@ -269,8 +272,16 @@ impl WeaponClips {
         ((0.18 - offset.xz().length()) / 0.09).clamp(0.0, 1.0)
     }
 
-    /// Weapon orientation can change inside the hand (notably dagger heavies).
-    pub fn animated_grip(&self, id: ClipId, t: f32, blade: [Vec3; 2]) -> Option<Quat> {
+    /// Weapon orientation can change inside the hand (notably dagger heavies): the item's rotation
+    /// in the hand bone's frame, its blade onto the clip's weapon bone's axis and, for the families
+    /// that have one, its lopsided head (`item_edge`, [`head_side`]) onto the Dark Souls edge.
+    pub fn animated_mount(
+        &self,
+        id: ClipId,
+        t: f32,
+        blade: [Vec3; 2],
+        item_edge: Option<Vec3>,
+    ) -> Option<Quat> {
         let (hand, weapon) = self.grip_bones?;
         let (wow, reference) = match id {
             ClipId::Move(kind) => {
@@ -297,8 +308,32 @@ impl WeaponClips {
             bone = usize::try_from(wow.parents[i]).ok();
         }
         // Carry the complete authored weapon rotation, including twist around its long axis.
-        let mount = grip_rotation(blade, self.grip.weapon);
+        let mount = mount_rotation(blade, self.grip.weapon, item_edge, self.edge);
         Some(q.inverse() * sample(reference, t, weapon).1 * mount)
+    }
+
+    /// The Dark Souls edge in the hand bone's frame while the stance's first frame holds, the
+    /// edge the clips without a weapon bone of their own (gaits, rolls, reactions) keep the head on.
+    fn rest_edge(&self) -> Option<Vec3> {
+        let (hand, weapon) = self.grip_bones?;
+        let edge = self.edge?;
+        let (wow, reference) = self.idle.as_ref()?;
+        if hand >= wow.bones() || weapon >= reference.bones() {
+            return None;
+        }
+        let mut q = Quat::IDENTITY;
+        let mut bone = Some(hand);
+        while let Some(i) = bone {
+            q = sample(wow, 0.0, i).1 * q;
+            bone = usize::try_from(wow.parents[i]).ok();
+        }
+        Some(q.inverse() * sample(reference, 0.0, weapon).1 * edge)
+    }
+
+    /// The item's rotation in the hand bone's frame for a clip with no weapon bone of its own:
+    /// the blade onto the hand's blade axis `axis`, the head onto the stance's edge.
+    pub fn rest_mount(&self, blade: [Vec3; 2], item_edge: Option<Vec3>, axis: Vec3) -> Quat {
+        mount_rotation(blade, axis, item_edge, self.rest_edge())
     }
 
     pub fn clip(&self, kind: MoveKind) -> Option<&MoveClip> {
@@ -349,6 +384,132 @@ pub fn grip_rotation(blade: [Vec3; 2], hand: Vec3) -> Quat {
         return Quat::IDENTITY;
     }
     Quat::from_rotation_arc(from, to)
+}
+
+/// The turn about `axis` that brings `from` onto `to`, both read across the axis (their parts along
+/// it do not count); none when either lies along it.
+fn twist_onto(axis: Vec3, from: Vec3, to: Vec3) -> Quat {
+    let axis = axis.normalize_or_zero();
+    let across = |v: Vec3| v - axis * v.dot(axis);
+    let (from, to) = (across(from), across(to));
+    if axis == Vec3::ZERO || from.length_squared() < 1.0e-6 || to.length_squared() < 1.0e-6 {
+        return Quat::IDENTITY;
+    }
+    let angle = from.cross(to).dot(axis).atan2(from.dot(to));
+    Quat::from_axis_angle(axis, angle)
+}
+
+/// Whether a weapon family may hold a guard. Dark Souls' own table (`enableGuard`) shuts the
+/// dagger out of the block (it only parries there); this game gives it the block, at the stability
+/// and cut of its own row (the lowest of the one-handed weapons: it turns a blow, it does not stop one).
+pub fn guard_enabled(family: &str, from_cache: bool) -> bool {
+    from_cache || matches!(family, "dagger" | "dagger_2h")
+}
+
+/// The rotation that turns a held item onto the Dark Souls weapon: its blade (`[top, bottom]`)
+/// onto `axis`, as [`grip_rotation`], and then, when both are known, its lopsided head
+/// (`item_edge`, in the item's frame, [`head_side`]) about that axis onto the weapon's `edge`
+/// (both in the frame `axis` is in). The blade axis alone leaves the clock around it to chance,
+/// which a sword's two edges forgive and an axe's one does not.
+pub fn mount_rotation(
+    blade: [Vec3; 2],
+    axis: Vec3,
+    item_edge: Option<Vec3>,
+    edge: Option<Vec3>,
+) -> Quat {
+    let arc = grip_rotation(blade, axis);
+    match (item_edge, edge) {
+        (Some(item), Some(edge)) => twist_onto(axis, arc * item, edge) * arc,
+        _ => arc,
+    }
+}
+
+/// `WOWSOULS_EDGE=0` leaves the head's clock to the blade arc alone (how it was before the edge
+/// fit), to compare a swing with and without.
+fn edge_clock() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("WOWSOULS_EDGE").as_deref() != Ok("0"))
+}
+
+/// Weapon families whose head has an edge on one side: a sword's blade is the same either way up,
+/// an axe's is not.
+pub fn edge_led(family: &str) -> bool {
+    family.starts_with("axe") || family == "greataxe"
+}
+
+/// A lopsided head's side: the direction, across the blade axis, from the shaft to where the item's
+/// points sit (a head's mass hangs on the side its edge is on); none for a model that is even all
+/// round (a straight blade, a double-bitted head), where the clock is no one's business.
+pub fn head_side(points: impl IntoIterator<Item = Vec3>, blade: [Vec3; 2]) -> Option<(Vec3, f32)> {
+    let axis = (blade[0] - blade[1]).normalize_or_zero();
+    if axis == Vec3::ZERO {
+        return None;
+    }
+    let (mut sum, mut count, mut reach) = (Vec3::ZERO, 0usize, 0.0f32);
+    for p in points {
+        let d = p - blade[1];
+        let across = d - axis * d.dot(axis);
+        sum += across;
+        reach = reach.max(across.length());
+        count += 1;
+    }
+    if count == 0 || reach < 1.0e-4 {
+        return None;
+    }
+    let mean = sum / count as f32;
+    let lopsided = mean.length() / reach;
+    (lopsided > LOPSIDED).then(|| (mean.normalize(), lopsided))
+}
+
+/// How far the mean of a model's points must sit off the shaft, as a share of the farthest point,
+/// for [`head_side`] to call the head lopsided.
+const LOPSIDED: f32 = 0.12;
+
+/// How far along the weapon's axis (yd) the point is whose travel names the edge.
+const EDGE_PROBE: f32 = 0.7;
+
+/// Which way a Dark Souls weapon's edge faces, in the weapon bone's own frame (`axis` is the blade
+/// along it, `weapon` the bone): where a point on the blade travels, across the axis, through the
+/// moves' hit windows, summed so the fast part of the blow counts most. A blade strikes with its
+/// edge first, so that is the edge, however the animator laid the model in the hand. `None` when the
+/// moves do not agree on one direction (the sum is under half the travel).
+pub fn swing_edge<'a>(
+    moves: impl IntoIterator<Item = &'a MoveClip>,
+    weapon: usize,
+    axis: Vec3,
+) -> Option<(Vec3, f32)> {
+    let axis = axis.normalize_or_zero();
+    if axis == Vec3::ZERO {
+        return None;
+    }
+    let (mut sum, mut travel) = (Vec3::ZERO, 0.0f32);
+    for m in moves {
+        let clip = &m.reference;
+        if weapon >= clip.bones() || clip.frames.len() < 2 {
+            continue;
+        }
+        let dt = 1.0 / clip.fps;
+        for spec in &m.hits {
+            let mut t = spec.hit.0;
+            while t < spec.hit.1 {
+                let tip = |t: f32| {
+                    let (p, q, _) = sample(clip, t, weapon);
+                    (p + q * (axis * EDGE_PROBE), q)
+                };
+                let (a, q) = tip(t);
+                let (b, _) = tip(t + dt);
+                let moved = q.inverse() * (b - a);
+                let across = moved - axis * moved.dot(axis);
+                sum += across;
+                travel += across.length();
+                t += dt;
+            }
+        }
+    }
+    if travel < 1.0e-4 || sum.length() < 0.5 * travel {
+        return None;
+    }
+    Some((sum.normalize(), sum.length() / travel))
 }
 
 /// The item's rotation `weight` of the way from none to `fit`.
@@ -885,7 +1046,7 @@ pub(crate) fn load_moves(dir: &Path, manifest: &str, bones: usize) -> Result<Wea
             {
                 return Err("bad guard".to_string());
             }
-            Ok((n[0], n[1], n[2] == 1.0))
+            Ok((n[0], n[1], guard_enabled(&family, n[2] == 1.0)))
         })
         .transpose()?;
     let mut guards = Vec::new();
@@ -912,6 +1073,19 @@ pub(crate) fn load_moves(dir: &Path, manifest: &str, bones: usize) -> Result<Wea
             push: Vec2::ZERO,
         });
     }
+    let edge = grip_bones
+        .filter(|_| edge_led(&family))
+        .and_then(|(_, weapon)| {
+            let edge = swing_edge(clips.iter().map(|(_, m)| m), weapon, grip.weapon);
+            match edge {
+                Some((e, agree)) => info!(
+                    "motion_clip: {family} edge faces ({:+.2}, {:+.2}, {:+.2}) in the weapon bone ({:.0} % of the swings agree)",
+                    e.x, e.y, e.z, agree * 100.0
+                ),
+                None => info!("motion_clip: {family} swings name no one edge; the head keeps its authored clock"),
+            }
+            edge.map(|(e, _)| e)
+        });
     Ok(WeaponClips {
         base_damage,
         clips,
@@ -919,6 +1093,7 @@ pub(crate) fn load_moves(dir: &Path, manifest: &str, bones: usize) -> Result<Wea
         grip,
         family,
         grip_bones,
+        edge,
         two_handed,
         projectile,
         idle,
@@ -1206,6 +1381,7 @@ fn pose(
             .map(|b| (h, b))
     }) {
         let tuned = tune.is_some();
+        let item_edge = held.edge.filter(|_| edge_clock());
         let fit = tune
             .as_ref()
             .map_or_else(|| grip_rotation(blade, moves.grip.hand), |t| t.0);
@@ -1230,9 +1406,15 @@ fn pose(
                 let mut fit = if tuned {
                     fit
                 } else {
-                    moves.animated_grip(id, t, blade).unwrap_or_else(|| {
-                        grip_rotation(blade, clip_grip(id, &moves, defense.as_deref()).hand)
-                    })
+                    moves
+                        .animated_mount(id, t, blade, item_edge)
+                        .unwrap_or_else(|| {
+                            moves.rest_mount(
+                                blade,
+                                item_edge,
+                                clip_grip(id, &moves, defense.as_deref()).hand,
+                            )
+                        })
                 };
                 if !tuned && maul.is_some() {
                     fit *= maul_clock();
@@ -1843,7 +2025,7 @@ mod tests {
                 let r = model_pose(&locals, &clip.wow.parents, right.0).unwrap();
                 let l = model_pose(&locals, &clip.wow.parents, left.0).unwrap();
                 let rotation = moves
-                    .animated_grip(ClipId::Move(*kind), f as f32 / clip.wow.fps, blade)
+                    .animated_mount(ClipId::Move(*kind), f as f32 / clip.wow.fps, blade, None)
                     .unwrap()
                     * maul_clock();
                 let origin = r.transform_point(right.1 + rotation * Vec3::Z * MAUL_GRIP);
@@ -2186,5 +2368,201 @@ mod tests {
         let err = load(&dir).err().unwrap();
         std::fs::remove_dir_all(&dir).ok();
         assert!(err.contains("body_roll.wsanim"), "{err}");
+    }
+
+    /// An axe model: a shaft along -Z from the butt at the origin to 0.9 yd, and a head at the
+    /// top whose points hang to one side (`side`).
+    fn axe_points(side: Vec3) -> Vec<Vec3> {
+        let shaft = (0..=18).map(|i| Vec3::new(0.0, 0.0, -0.05 * i as f32));
+        let head = (0..=4).flat_map(move |i| {
+            [-0.85, -0.9].map(|z| side * (0.03 * i as f32) + Vec3::new(0.0, 0.0, z))
+        });
+        shaft.chain(head).collect()
+    }
+
+    const AXE_BLADE: [Vec3; 2] = [Vec3::new(0.0, 0.0, -0.9), Vec3::ZERO];
+
+    #[test]
+    fn a_heads_side_is_where_the_models_points_hang() {
+        for side in [
+            Vec3::X,
+            Vec3::NEG_X,
+            Vec3::Y,
+            Vec3::new(1.0, 1.0, 0.0).normalize(),
+        ] {
+            let (found, lopsided) = head_side(axe_points(side), AXE_BLADE).unwrap();
+            assert!(found.dot(side) > 0.999, "{side}: {found}");
+            assert!(lopsided > LOPSIDED, "{lopsided}");
+        }
+    }
+
+    #[test]
+    fn an_even_model_has_no_side() {
+        let both: Vec<_> = axe_points(Vec3::X)
+            .into_iter()
+            .chain(axe_points(Vec3::NEG_X))
+            .collect();
+        assert_eq!(head_side(both, AXE_BLADE), None, "double-bitted");
+        let blade = (0..=18).map(|i| Vec3::new(0.0, 0.0, -0.05 * i as f32));
+        assert_eq!(head_side(blade, AXE_BLADE), None, "a bare shaft");
+        assert_eq!(head_side([], AXE_BLADE), None, "no points");
+        assert_eq!(
+            head_side(axe_points(Vec3::X), [Vec3::ZERO; 2]),
+            None,
+            "no axis"
+        );
+    }
+
+    #[test]
+    fn the_mount_turns_the_blade_onto_the_axis_and_the_head_onto_the_edge() {
+        // The item's shaft is -Z; the weapon bone's blade is +Y.
+        for head in [Vec3::X, Vec3::NEG_X, Vec3::Y] {
+            for edge in [Vec3::X, Vec3::Z, Vec3::NEG_Z, Vec3::new(0.6, 0.0, 0.8)] {
+                let mount = mount_rotation(AXE_BLADE, Vec3::Y, Some(head), Some(edge));
+                let blade = mount * Vec3::NEG_Z;
+                assert!(blade.dot(Vec3::Y) > 0.9999, "blade {blade}");
+                let hung = mount * head;
+                assert!(
+                    hung.dot(Vec3::Y).abs() < 1.0e-4,
+                    "head left the plane: {hung}"
+                );
+                assert!(
+                    hung.dot(edge) > 0.9999,
+                    "head {head} on edge {edge}: {hung}"
+                );
+            }
+        }
+        // Without both, the shortest arc, as ever.
+        let arc = grip_rotation(AXE_BLADE, Vec3::Y);
+        assert!(alike(
+            mount_rotation(AXE_BLADE, Vec3::Y, None, Some(Vec3::X)),
+            arc
+        ));
+        assert!(alike(
+            mount_rotation(AXE_BLADE, Vec3::Y, Some(Vec3::X), None),
+            arc
+        ));
+        // An edge along the blade names no clock.
+        assert!(alike(
+            mount_rotation(AXE_BLADE, Vec3::Y, Some(Vec3::X), Some(Vec3::Y)),
+            arc
+        ));
+    }
+
+    /// A move that turns the weapon bone (blade along +Y) about `spin` for a second, hit window 0.2-0.8.
+    fn swung(spin: Vec3) -> MoveClip {
+        let frame = |i: usize| {
+            vec![wscl::Trs {
+                r: Quat::from_axis_angle(spin, 0.1 * i as f32).to_array(),
+                ..wscl::Trs::IDENTITY
+            }]
+        };
+        let reference = wscl::Clip {
+            name: "swing".into(),
+            fps: 10.0,
+            model_space: true,
+            parents: vec![-1],
+            driven: vec![true],
+            frames: (0..=10).map(frame).collect(),
+            root_motion: vec![[0.0; 4]; 11],
+            flags: Vec::new(),
+            hits: Vec::new(),
+        };
+        let spec = SwingSpec {
+            hit: (0.2, 0.8),
+            ..SwingSpec::procedural(1.0)
+        };
+        MoveClip {
+            wow: reference.clone(),
+            reference,
+            spec,
+            hits: vec![spec],
+        }
+    }
+
+    #[test]
+    fn the_edge_is_where_the_blade_travels() {
+        // A blade along +Y turning about +Z swings its tip toward -X.
+        let (edge, agree) =
+            swing_edge([&swung(Vec3::Z)], 0, Vec3::Y).expect("one direction all through");
+        assert!(edge.dot(Vec3::NEG_X) > 0.999, "{edge}");
+        assert!(agree > 0.99, "{agree}");
+        // The same blade, swung both ways, names no edge.
+        let back = swung(Vec3::NEG_Z);
+        assert_eq!(swing_edge([&swung(Vec3::Z), &back], 0, Vec3::Y), None);
+        // A spin about its own axis moves no point of the blade across it.
+        assert_eq!(swing_edge([&swung(Vec3::Y)], 0, Vec3::Y), None);
+        // No such bone, no axis, no moves.
+        assert_eq!(swing_edge([&swung(Vec3::Z)], 3, Vec3::Y), None);
+        assert_eq!(swing_edge([&swung(Vec3::Z)], 0, Vec3::ZERO), None);
+        assert_eq!(swing_edge([], 0, Vec3::Y), None);
+    }
+
+    /// Every axe move of the installed cache strikes with the edge the family's fit turns the head
+    /// onto (`WOWSOULS_TEST_WEAPONS=<anim/source>`), none with the back of the head.
+    #[test]
+    fn installed_axe_moves_strike_with_the_edge_of_the_fit() {
+        let Ok(root) = std::env::var("WOWSOULS_TEST_WEAPONS") else {
+            return;
+        };
+        let root = Path::new(&root);
+        let index = std::fs::read_to_string(root.join("weapons.txt")).unwrap();
+        for line in index.lines().skip(1) {
+            let w: Vec<_> = line.split_whitespace().collect();
+            let ["family", name, path] = w[..] else {
+                continue;
+            };
+            if !edge_led(name) {
+                continue;
+            }
+            let dir = root.join(path);
+            let m = load_moves(&dir, &checked_manifest(&dir).unwrap(), 119).unwrap();
+            let family = m.edge.unwrap_or_else(|| panic!("{name}: no family edge"));
+            let (_, weapon) = m.grip_bones.unwrap();
+            for kind in MoveKind::ALL {
+                let c = m.clip(kind).unwrap();
+                let one = swing_edge([c], weapon, m.grip.weapon);
+                eprintln!(
+                    "{name} {}: {:?}",
+                    kind.name(),
+                    one.map(|(e, agree)| (e.dot(family), agree))
+                );
+                if let Some((e, _)) = one {
+                    assert!(
+                        e.dot(family) > 0.5,
+                        "{name} {} leads with the back",
+                        kind.name()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn only_axes_have_an_edge_to_clock() {
+        for family in ["axe", "axe_2h", "greataxe"] {
+            assert!(edge_led(family), "{family}");
+        }
+        for family in [
+            "straight_sword",
+            "dagger",
+            "mace",
+            "great_hammer",
+            "polearm",
+            "fist",
+        ] {
+            assert!(!edge_led(family), "{family}");
+        }
+    }
+
+    #[test]
+    fn the_dagger_may_block_though_dark_souls_does_not_let_it() {
+        assert!(guard_enabled("dagger", false));
+        assert!(guard_enabled("dagger_2h", false));
+        assert!(guard_enabled("straight_sword", true));
+        // What the table forbids stays forbidden for those that are not the dagger.
+        assert!(!guard_enabled("fist", false));
+        assert!(!guard_enabled("unarmed", false));
+        assert!(!guard_enabled("straight_sword", false));
     }
 }

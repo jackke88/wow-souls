@@ -290,6 +290,13 @@ mod tests {
                     m.family
                 );
             }
+            if motion_clip::edge_led(&m.family) {
+                assert!(m.edge.is_some(), "{}: the swings name no edge", m.family);
+            }
+            if m.family.starts_with("dagger") {
+                // Dark Souls' table shuts the dagger out of the block; this game does not.
+                assert!(m.guard.is_some_and(|g| g.2), "{}: no guard", m.family);
+            }
             names.push(m.family);
         }
         for family in [
