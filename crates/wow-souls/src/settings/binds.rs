@@ -37,6 +37,8 @@ pub enum Action {
     LockOn,
     Interact,
     QuickUse,
+    /// Lights or douses the worn torch ([`crate::torch`]).
+    Torch,
     TwoHand,
     Ranged,
     Ability1,
@@ -91,7 +93,7 @@ impl Group {
 }
 
 impl Action {
-    pub const ALL: [Action; 32] = [
+    pub const ALL: [Action; 33] = [
         Action::MoveForward,
         Action::MoveBack,
         Action::MoveLeft,
@@ -106,6 +108,7 @@ impl Action {
         Action::LockOn,
         Action::Interact,
         Action::QuickUse,
+        Action::Torch,
         Action::TwoHand,
         Action::Ranged,
         Action::Ability1,
@@ -143,6 +146,7 @@ impl Action {
             Action::LockOn => "lock_on",
             Action::Interact => "interact",
             Action::QuickUse => "quick_use",
+            Action::Torch => "torch",
             Action::TwoHand => "two_hand",
             Action::Ranged => "ranged",
             Action::Ability1 => "ability_1",
@@ -185,6 +189,7 @@ impl Action {
             Action::LockOn => "Lock on",
             Action::Interact => "Use / loot / talk",
             Action::QuickUse => "Quick-use Salve",
+            Action::Torch => "Light / douse torch",
             Action::TwoHand => "Two-hand grip",
             Action::Ranged => "Draw ranged weapon",
             Action::Ability1 => "Ability slot 1",
@@ -222,7 +227,7 @@ impl Action {
             | Action::LockOn
             | Action::TwoHand
             | Action::Ranged => Group::Combat,
-            Action::Interact | Action::QuickUse | Action::Talk => Group::World,
+            Action::Interact | Action::QuickUse | Action::Torch | Action::Talk => Group::World,
             Action::Ability1
             | Action::Ability2
             | Action::Ability3
@@ -356,6 +361,7 @@ fn default_keys(action: Action) -> [Option<Chord>; 2] {
         LockOn => [key(K::KeyQ), mouse(MouseButton::Middle)],
         Interact => [key(K::KeyX), None],
         QuickUse => [key(K::KeyV), None],
+        Torch => [key(K::KeyB), None],
         TwoHand => [key(K::KeyH), None],
         Ranged => [key(K::KeyY), None],
         Ability1 => [key(K::Digit1), None],
@@ -1062,6 +1068,12 @@ mod tests {
         assert_eq!(one(Action::Block), Some(Chord::key(KeyCode::KeyE)));
         assert_eq!(one(Action::Parry), Some(Chord::key(KeyCode::KeyC)));
         assert_eq!(one(Action::LockOn), Some(Chord::key(KeyCode::KeyQ)));
+        assert_eq!(one(Action::Torch), Some(Chord::key(KeyCode::KeyB)));
+        assert_eq!(
+            b.pad_button(Action::Torch),
+            None,
+            "every pad button is taken"
+        );
         assert_eq!(one(Action::Pack), Some(Chord::key(KeyCode::Tab)));
         assert_eq!(one(Action::Equipment), Some(Chord::key(KeyCode::KeyG)));
         assert_eq!(one(Action::Menu), Some(Chord::key(KeyCode::Escape)));

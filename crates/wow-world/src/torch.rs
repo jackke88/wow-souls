@@ -1,17 +1,17 @@
 //! The torch (2026-10-18, the user: "facklor ... man kan köpa det från shops ... en extra gear slot ...
-//! hänger vid bältet ... brinna slut efter x mycket tid"). WoW 1.12 sells no torch for a belt, so the item
-//! is ours: WoW's own lit-torch model and icon (`ItemDisplayInfo` 12312, `Club_1H_Torch_A_01`,
-//! `INV_Torch_Lit`), worn in [`Slot::Torch`](crate::equipment::Slot::Torch), sold by every vendor who
-//! sells Refreshing Spring Water (the general goods traders). A worn torch burns for [`BURN_SECS`] and is
-//! gone.
+//! brinna slut efter x mycket tid"). WoW 1.12 sells no torch for a belt, so the item is ours: WoW's own
+//! lit-torch icon (`ItemDisplayInfo` 12312, `INV_Torch_Lit`; its model is no longer drawn, a worn torch
+//! is only a light), worn in [`Slot::Torch`](crate::equipment::Slot::Torch), sold by every vendor who
+//! sells Refreshing Spring Water (the general goods traders). A lit torch burns for [`BURN_SECS`] of play
+//! and is gone; a doused one burns nothing.
 
 use crate::model::{Item, Vendor, World};
 
 /// The item's entry: past every WoW entry, beside the game's other own rows.
 pub const ITEM: u32 = 9_100_001;
-/// WoW's lit torch (`ItemDisplayInfo` 12312).
+/// WoW's lit torch (`ItemDisplayInfo` 12312): the icon.
 pub const DISPLAY: u32 = 12_312;
-/// Seconds a worn torch burns.
+/// Seconds a lit torch burns before it is spent: ten minutes of play.
 pub const BURN_SECS: f32 = 600.0;
 /// Its price in copper (100 souls at the shops' rate).
 pub const PRICE: u32 = 25;
