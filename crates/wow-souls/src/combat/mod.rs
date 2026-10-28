@@ -27,6 +27,7 @@ use benilla_assets::ModelAnimations;
 
 mod action;
 pub use action::*;
+pub mod duel;
 // Bevy's prelude has a `Press` too (picking): name ours, or the two globs clash.
 use action::Press;
 
@@ -240,6 +241,20 @@ pub fn plugin(app: &mut App) {
     {
         app.insert_resource(d);
     }
+    if let Some(seed) = std::env::var("WOWSOULS_DUEL")
+        .ok()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+    {
+        app.insert_resource(duel::DuelCall::default())
+            .insert_resource(duel::Duel::new(seed))
+            .add_systems(
+                Update,
+                duel::bot
+                    .in_set(PlaySet::Intent)
+                    .after(crate::controller::read_intent)
+                    .before(act),
+            );
+    }
     if std::env::var_os("WOWSOULS_TRACE").is_some() {
         app.add_systems(
             Update,
@@ -357,6 +372,7 @@ pub(crate) fn act(
         Option<Res<ScriptedAttack>>,
         Option<Res<ScriptedHeavy>>,
         Option<Res<ScriptedRoll>>,
+        Option<Res<duel::DuelCall>>,
     ),
     mut next_scripted: Local<(Option<f32>, Option<f32>, Option<f32>)>,
     mut action_trace: Local<ActionTrace>,
@@ -424,7 +440,9 @@ pub(crate) fn act(
     let captured = window
         .single()
         .is_ok_and(|c| c.grab_mode == bevy::window::CursorGrabMode::Locked);
+    let duel = scripted.3.as_deref().copied().unwrap_or_default();
     let attack = (live && attack_pressed(&settings.binds, &keys, &buttons, &gamepads, captured))
+        || duel.attack
         || scripted
             .0
             .is_some_and(|s| s.0.due(&mut next_scripted.0, now));
@@ -446,6 +464,7 @@ pub(crate) fn act(
         }
     }
     let evade = dodge_stick.is_some()
+        || duel.evade
         || (live && evade_pressed(&settings.binds, &keys, &buttons, &gamepads, captured))
         || scripted
             .2
@@ -458,7 +477,8 @@ pub(crate) fn act(
         .map_or_else(|| Moveset::procedural(swing_len), |d| d.moveset);
     // A heavy press needs a heavy attack, which only the Dark Souls moveset has.
     let heavy = moves.has_heavy()
-        && ((live && heavy_pressed(&settings.binds, &keys, &buttons, &gamepads, captured))
+        && (duel.heavy
+            || (live && heavy_pressed(&settings.binds, &keys, &buttons, &gamepads, captured))
             || scripted
                 .1
                 .is_some_and(|s| s.0.due(&mut next_scripted.1, now)));
@@ -474,6 +494,7 @@ pub(crate) fn act(
         && !weapon_clips.as_ref().is_some_and(|m| m.two_handed)
         && ((live && parry_pressed(&settings.binds, &keys, &buttons, &gamepads, captured))
             || scripted_parry.is_some_and(|s| s.0.due(&mut next_parry, now))
+            || duel.parry
             || parry_due);
     let guard = defense.is_some()
         && !ranged
@@ -481,6 +502,7 @@ pub(crate) fn act(
             .as_ref()
             .is_none_or(|m| m.guard.is_none_or(|g| g.2))
         && ((live && guard_held(&settings.binds, &keys, &buttons, &gamepads, captured))
+            || duel.guard
             || scripted_guard.is_some_and(|s| s.0.contains(now)));
     let ready = weapon_ready.is_none_or(|r| r.0);
     let press = if parry && ready {

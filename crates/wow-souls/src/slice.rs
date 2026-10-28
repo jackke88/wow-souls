@@ -214,9 +214,25 @@ pub fn group_spots(g: &Group) -> Vec<[f32; 3]> {
 /// Who stands where: each creature's species and feet in WoW coords, group by group (the
 /// remaining species arrive with their kits, spec `2026-10-09-enemy-roster-design.md`).
 pub fn spawn_plan() -> Vec<(&'static SpeciesDef, [f32; 3])> {
-    GROUPS
+    let mut plan: Vec<_> = GROUPS
         .iter()
         .flat_map(|g| group_spots(g).into_iter().map(|at| (g.species, at)))
+        .collect();
+    plan.extend(foe_spots(std::env::var("WOWSOULS_FOE").ok().as_deref()));
+    plan
+}
+
+/// `WOWSOULS_FOE=<species>@<x>,<y>[,<z>];...`: any species of the roster put down at a place in WoW
+/// coords (the height is a seed the spawn snaps to the ground), for a check or a recording of
+/// one creature at its real spawn. Unknown species and junk are skipped.
+pub fn foe_spots(var: Option<&str>) -> Vec<(&'static SpeciesDef, [f32; 3])> {
+    var.unwrap_or_default()
+        .split(';')
+        .filter_map(|one| {
+            let (name, at) = one.split_once('@')?;
+            let def = crate::species::by_name(name.trim())?;
+            Some((def, parse_wow_point(at, ANCHOR[2])?))
+        })
         .collect()
 }
 
@@ -256,6 +272,18 @@ mod tests {
 
     fn wolves(var: Option<&str>, unattended: bool, moved: bool) -> usize {
         count_for(var, unattended, moved, 1 + EXTRA_WOLVES.len(), 0)
+    }
+
+    #[test]
+    fn a_foe_variable_names_species_and_places() {
+        let spots = foe_spots(Some(
+            "garrick@-9056.5,-460.9,72.6; nobody@1,2 ;kobold@-8888,-132",
+        ));
+        assert_eq!(spots.len(), 2);
+        assert_eq!(spots[0].0.name, "garrick");
+        assert_eq!(spots[0].1, [-9056.5, -460.9, 72.6]);
+        assert_eq!(spots[1].1, [-8888.0, -132.0, ANCHOR[2]]);
+        assert!(foe_spots(None).is_empty());
     }
 
     #[test]

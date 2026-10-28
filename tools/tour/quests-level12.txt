@@ -1,0 +1,4 @@
+wsquests 1
+name	Tour
+xp	44000
+money	0

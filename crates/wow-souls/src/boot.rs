@@ -125,6 +125,7 @@ pub fn run(build: BuildId) -> AppExit {
         .add_plugins(crate::bloodstain::plugin)
         .add_plugins(crate::soulbind::plugin)
         .add_plugins(crate::world_state::plugin)
+        .add_plugins(crate::tour::plugin)
         .add_plugins(record::plugin)
         .add_plugins((
             shove::plugin,
