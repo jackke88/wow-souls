@@ -51,6 +51,21 @@ To play without the source afterwards, put `target\ship\wow-souls.exe`,
 `crates\dsr-cache\target\release\wow-souls-dsr.exe`, `data\` and `anim\` in one folder and start the
 exe. Original Dark Souls (Prepare to Die Edition) is not supported: its files use older formats.
 
+### Linux and NixOS
+
+The repository is also a Nix flake, which builds a native Linux binary instead of the `.exe`:
+
+```console
+nix run github:jackke88/wow-souls
+```
+
+The same two game folders are needed. On NixOS `programs.wow-souls` is told where they are, so the
+game does not have to ask for them, and the package installs `wow-souls`, `wow-souls-dsr` and a
+menu entry system-wide. [docs/nix.md](docs/nix.md) covers the module options, the environment
+variables a plain Linux install needs (`WOW_DATA`, `WOWSOULS_DATA_DIR`, `WOWSOULS_ANIM_DIR`) and the
+limits seen so far. Linux is not the platform the game is developed on: the code has no
+Windows-only paths in it, but it is not tested here, so expect rough edges.
+
 ## About the code
 
 Design and architecture: [docs/wow-souls-feasibility.md](docs/wow-souls-feasibility.md).
